@@ -1,0 +1,79 @@
+app:
+  name: MiguelLM
+  environment: linux-server
+  intro_text: >-
+    I'm Miguel's terminal clone. This is mildly tragic, yes, but useful. You can
+    talk to me about robotics, research, PhD survival, lab memories, anime, games,
+    or whatever nonsense passed peer review this week.
+
+# Private Linux backend mode. Keep actual secrets in .env/.env.local on Linux.
+backend:
+  mode: local
+  auth_token_env: MIGUELLM_BACKEND_TOKEN
+  timeout_seconds: 120
+
+providers:
+  dialogue:
+    primary: openai
+    fallback: local_rule_based
+    openai:
+      api_key_env: OPENAI_API_KEY
+      model_env: OPENAI_DIALOGUE_MODEL
+      default_model: gpt-5.4-mini
+      reasoning_effort: low
+    local:
+      endpoint: http://127.0.0.1:11434/api/generate
+      model: llama3.2:3b
+
+voice:
+  provider: local_http
+  fallback_to_text: true
+  sample_rate: 24000
+  local_http:
+    endpoint_env: LOCAL_TTS_ENDPOINT
+    default_endpoint: http://127.0.0.1:7861/synthesize
+    timeout_seconds: 120
+    ref_audio: assets/input/audio/f5_reference.wav
+    ref_text: "Hello, I am Miguel's terminal clone. I work on robotics, learning, and human robot interaction, and I like clear technical conversations."
+
+# The backend can start F5-TTS if health checks fail. The actual command lives
+# only in the Linux .env, for example MIGUELLM_TTS_START_COMMAND='...'.
+tts_server:
+  autostart: true
+  command_env: MIGUELLM_TTS_START_COMMAND
+  cwd_env: MIGUELLM_TTS_CWD
+  startup_timeout_seconds: 90
+  log_path: tmp/f5-tts-server.log
+
+input_audio:
+  recorder: ffmpeg_avfoundation
+  ffmpeg_bin: ffmpeg
+  device: "none:0"
+  record_seconds: 5
+  sample_rate: 16000
+  channels: 1
+  transcribe:
+    provider: openai
+    api_key_env: OPENAI_API_KEY
+    model_env: OPENAI_TRANSCRIBE_MODEL
+    default_model: whisper-1
+    prompt: "Research and robotics conversation with MiguelLM. Terms may include LLM, PhD, robots, OpenAI, reinforcement learning, multimodal learning, and terminal app."
+
+playback:
+  player: auto
+  keep_wavs: false
+
+paths:
+  persona_dir: persona
+  persona_dir_env: MIGUELLM_PERSONA_DIR
+  memory_dir: memory/auto
+  sessions_dir: sessions
+  consent_file: memory/consent.json
+
+memory:
+  enabled: true
+  auto_write: true
+  require_consent: true
+  min_confidence: 0.55
+  max_memories_per_session: 8
+  redact_sensitive: true

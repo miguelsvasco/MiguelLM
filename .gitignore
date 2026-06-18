@@ -1,0 +1,21 @@
+.env
+.env.local
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+
+# Runtime/private data
+memory/auto/
+memory/consent.json
+sessions/
+tmp/
+assets/input/audio/*.wav
+assets/input/audio/*.mp3
+assets/input/audio/*.flac
+private/
+
+# Local build artifacts
+build/
+dist/
+*.egg-info/
