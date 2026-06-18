@@ -2,34 +2,68 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 import json
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from miguel_lm.audio_codec import pcm16_mono_to_wav_bytes, wav_bytes_to_pcm16_mono
+from miguel_lm.audio_codec import wav_bytes_to_pcm16_mono
 from miguel_lm.audio_input import FfmpegAudioRecorder, PushToTalkInput
 from miguel_lm.config import AppConfig
-from miguel_lm.engine import RuntimeStatus
-from miguel_lm.models import AudioClip, DialogueResponse
+from miguel_lm.models import AudioClip, ClientMetadata, DialogueResponse, RuntimeStatus
 from miguel_lm.playback import AudioPlayer
 from miguel_lm import __version__
 
 
-class RemoteBackendError(RuntimeError):
+class RemoteServiceError(RuntimeError):
     pass
 
 
-class RemoteMiguelLMRuntime:
+class RemoteClientRuntime:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.url = config.backend.resolved_url.rstrip("/")
         self.token = config.backend.client_token
         self.timeout_seconds = config.backend.timeout_seconds
-        self.player = AudioPlayer(config.playback, config.resolve("tmp"))
+        self.player = AudioPlayer(config.playback, config.resolve(config.paths.tmp_dir))
         self._ptt: Optional[PushToTalkInput] = None
         self._audio_cache: Dict[str, AudioClip] = {}
+        default_metadata = ClientMetadata()
+        self._metadata = ClientMetadata(
+            app_name=config.app_name,
+            intro_text=config.intro_text or default_metadata.intro_text,
+        )
+
+    @property
+    def metadata(self) -> ClientMetadata:
+        return self._metadata
+
+    async def refresh_metadata(self) -> ClientMetadata:
+        data = await _run_blocking(
+            self._request_json,
+            "GET",
+            "/metadata",
+            None,
+            True,
+            True,
+            2.5,
+        )
+        if not data:
+            data = await _run_blocking(
+                self._request_json,
+                "GET",
+                "/health",
+                None,
+                False,
+                True,
+                1.5,
+            )
+        if data:
+            self._metadata = ClientMetadata.from_mapping(data, self._metadata)
+        return self._metadata
 
     def status(self) -> RuntimeStatus:
         health = self._request_json("GET", "/health", auth=False, tolerate_errors=True, timeout_seconds=1.5) or {}
@@ -42,7 +76,7 @@ class RemoteMiguelLMRuntime:
         )
 
     async def answer(self, user_text: str) -> DialogueResponse:
-        data = await asyncio.to_thread(self._request_json, "POST", "/chat", {"text": user_text})
+        data = await _run_blocking(self._request_json, "POST", "/chat", {"text": user_text})
         response = DialogueResponse.from_mapping(data.get("response") or data, provider=str(data.get("provider") or "remote"))
         clip = _clip_from_response_audio(data, response.spoken_text)
         if clip is not None:
@@ -52,10 +86,10 @@ class RemoteMiguelLMRuntime:
     async def synthesize(self, text: str) -> Optional[AudioClip]:
         if text in self._audio_cache:
             return self._audio_cache.pop(text)
-        data = await asyncio.to_thread(self._request_json, "POST", "/synthesize", {"text": text})
+        data = await _run_blocking(self._request_json, "POST", "/synthesize", {"text": text})
         clip = _clip_from_response_audio(data, text)
         if clip is None:
-            raise RemoteBackendError(str(data.get("audio_error") or "Remote backend returned no audio."))
+            raise RemoteServiceError(str(data.get("audio_error") or "Remote service returned no audio."))
         return clip
 
     async def speak(self, text: str) -> Optional[str]:
@@ -122,7 +156,6 @@ class RemoteMiguelLMRuntime:
             headers["Content-Type"] = "application/json"
         if auth and self.token:
             headers["Authorization"] = "Bearer %s" % self.token
-            headers["X-MiguelLM-Token"] = self.token
         request = urllib.request.Request(self.url + path, data=body, headers=headers, method=method)
         try:
             with urllib.request.urlopen(request, timeout=timeout_seconds or self.timeout_seconds) as response:
@@ -131,15 +164,15 @@ class RemoteMiguelLMRuntime:
             details = exc.read().decode("utf-8", errors="replace")
             if tolerate_errors:
                 return {}
-            raise RemoteBackendError("MiguelLM backend HTTP %s: %s" % (exc.code, details)) from exc
+            raise RemoteServiceError("Remote service HTTP %s: %s" % (exc.code, details)) from exc
         except Exception as exc:
             if tolerate_errors:
                 return {}
-            raise RemoteBackendError("MiguelLM backend is not reachable at %s: %s" % (self.url, exc)) from exc
+            raise RemoteServiceError("Remote service is not reachable at %s: %s" % (self.url, exc)) from exc
 
 
 class _RemotePushToTalk(PushToTalkInput):
-    def __init__(self, recorder: FfmpegAudioRecorder, remote: RemoteMiguelLMRuntime) -> None:
+    def __init__(self, recorder: FfmpegAudioRecorder, remote: RemoteClientRuntime) -> None:
         super().__init__(recorder, stt_provider=None)
         self.remote = remote
 
@@ -150,7 +183,7 @@ class _RemotePushToTalk(PushToTalkInput):
         recorded = await self.recorder.record_once(output_path)
         if recorded.rms < 120:
             raise RuntimeError("Recording was very quiet. Check the selected microphone/device.")
-        return await asyncio.to_thread(self.remote.transcribe_wav, recorded.path)
+        return await _run_blocking(self.remote.transcribe_wav, recorded.path)
 
 
 def _clip_from_response_audio(data: Dict[str, Any], text: str) -> Optional[AudioClip]:
@@ -161,3 +194,9 @@ def _clip_from_response_audio(data: Dict[str, Any], text: str) -> Optional[Audio
     wav_bytes = base64.b64decode(str(encoded).encode("ascii"))
     pcm = wav_bytes_to_pcm16_mono(wav_bytes, sample_rate)
     return AudioClip(pcm=pcm, sample_rate=sample_rate, text=text, provider=str(data.get("audio_provider") or "remote"))
+
+
+async def _run_blocking(func, *args):
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return await loop.run_in_executor(executor, partial(func, *args))

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import List, Optional
+from typing import List
 
 from rich.panel import Panel
 from rich.text import Text
@@ -10,19 +10,20 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
-from miguel_lm.engine import MiguelLMRuntime
+from miguel_lm.models import ClientMetadata
+from miguel_lm.remote import RemoteClientRuntime
 
 
 HELP_TEXT = """Commands:
 /help                 show this help
 /privacy              show the memory/privacy note
-/memory on            enable local durable memories
-/memory off           disable local durable memories
-/memory list          list local memories
+/memory on            enable durable memories on the remote service
+/memory off           disable durable memories on the remote service
+/memory list          list memories
 /memory delete <id>   delete one memory
-/memory clear         delete all local memories
+/memory clear         delete all memories
 /voice test           synthesize and play a short voice test
-/quit                 exit MiguelLM
+/quit                 exit
 
 Shortcuts:
 Ctrl+R                push-to-talk recording
@@ -30,7 +31,7 @@ Ctrl+L                clear transcript
 """
 
 
-class MiguelLMApp(App):
+class TerminalClientApp(App):
     CSS = """
     Screen {
         background: #050906;
@@ -78,11 +79,12 @@ class MiguelLMApp(App):
         Binding("ctrl+c", "quit", "Quit"),
     ]
 
-    def __init__(self, runtime: MiguelLMRuntime, text_only: bool = False) -> None:
+    def __init__(self, runtime: RemoteClientRuntime, text_only: bool = False) -> None:
         super().__init__()
         self.runtime = runtime
         self.text_only = text_only
         self._busy = False
+        self.metadata: ClientMetadata = runtime.metadata
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -90,17 +92,18 @@ class MiguelLMApp(App):
             yield Static("", id="status")
             yield RichLog(id="transcript", wrap=True, highlight=True, markup=True)
             with Horizontal():
-                yield Input(placeholder="Talk to MiguelLM, or type /help", id="input")
+                yield Input(placeholder="Type a message, or /help", id="input")
         yield Footer()
 
     async def on_mount(self) -> None:
-        self.title = "MiguelLM"
-        self.sub_title = "retro terminal clone"
+        self.metadata = await self.runtime.refresh_metadata()
+        self.title = self.metadata.app_name
+        self.sub_title = self.metadata.subtitle
         self._update_status("Ready")
         log = self.query_one("#transcript", RichLog)
-        log.write(Panel(self.runtime.config.intro_text or "MiguelLM online.", title="MiguelLM", border_style="green"))
+        log.write(Panel(self.metadata.intro_text, title=self.metadata.app_name, border_style="green"))
         if not self.runtime.status().memory_enabled:
-            log.write(Panel(self._privacy_text(), title="Local Memory Is Off", border_style="yellow"))
+            log.write(Panel(self._privacy_text(), title="Memory Is Off", border_style="yellow"))
 
     async def on_unmount(self) -> None:
         await self.runtime.close()
@@ -152,7 +155,7 @@ class MiguelLMApp(App):
             self._busy = False
             self._update_status("Ready")
             return
-        log.write(Panel(response.spoken_text, title="MiguelLM", border_style="green"))
+        log.write(Panel(response.spoken_text, title=self.metadata.assistant_label, border_style="green"))
         self._busy = False
         self._update_status("Speaking...")
         asyncio.create_task(self._speak(response.spoken_text))
@@ -189,17 +192,17 @@ class MiguelLMApp(App):
     async def _memory_command(self, parts: List[str]) -> None:
         if len(parts) == 1 or parts[1] == "list":
             rows = self.runtime.memory_summary()
-            self._system("\n".join(rows) if rows else "No local memories stored.")
+            self._system("\n".join(rows) if rows else "No memories stored.")
             return
         action = parts[1].lower()
         if action == "on":
             self.runtime.set_memory_enabled(True)
-            self._system("Local durable memory is now ON. I will still redact obvious sensitive data.")
+            self._system("Durable memory is now ON on the remote service.")
             self._update_status("Ready")
             return
         if action == "off":
             self.runtime.set_memory_enabled(False)
-            self._system("Local durable memory is now OFF.")
+            self._system("Durable memory is now OFF on the remote service.")
             self._update_status("Ready")
             return
         if action == "delete" and len(parts) >= 3:
@@ -208,24 +211,20 @@ class MiguelLMApp(App):
             return
         if action == "clear":
             count = self.runtime.clear_memory()
-            self._system("Deleted %d local memories." % count)
+            self._system("Deleted %d memories." % count)
             return
         self._system("Usage: /memory on|off|list|delete <id>|clear")
 
     async def _voice_test(self) -> None:
-        self._system("Testing local voice...")
+        self._system("Testing voice...")
         try:
-            await self.runtime.speak("MiguelLM voice test. If you hear this, the local clone is making noise.")
+            await self.runtime.speak(self.metadata.voice_test_text)
             self._system("Voice test finished.")
         except Exception as exc:
             self._system("Voice test failed: %s" % exc)
 
     def _privacy_text(self) -> str:
-        return (
-            "MiguelLM stores transcripts under sessions/ for local debugging. Durable memories are OFF until "
-            "you type /memory on. Memories stay on this machine under memory/auto and can be listed or deleted "
-            "with /memory list and /memory delete <id>."
-        )
+        return self.metadata.privacy_text
 
     def _system(self, text: str) -> None:
         self.query_one("#transcript", RichLog).write(Panel(text, title="System", border_style="yellow"))
@@ -236,7 +235,7 @@ class MiguelLMApp(App):
         memory = "memory:on" if status.memory_enabled else "memory:off"
         player = status.player or "no-player"
         text = Text()
-        text.append(" MIGUELLM ", style="bold #2cff70")
+        text.append(" %s " % self.metadata.status_label, style="bold #2cff70")
         text.append("| %s " % activity, style="#b9ffb4")
         text.append("| %s " % voice, style="#2cff70" if status.tts_healthy else "yellow")
         text.append("| %s " % memory, style="#2cff70" if status.memory_enabled else "yellow")

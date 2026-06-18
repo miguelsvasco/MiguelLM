@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from importlib import resources
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 
 class ConfigError(RuntimeError):
     pass
 
 
-def _load_yaml(path: Path) -> Dict[str, Any]:
+YamlSource = Union[Path, Any]
+
+
+def _load_yaml(path: YamlSource) -> Dict[str, Any]:
     try:
         import yaml
     except ImportError as exc:
@@ -68,24 +72,6 @@ def _strip_inline_comment(value: str) -> str:
 
 
 @dataclass
-class MemorySettings:
-    enabled: bool = True
-    auto_write: bool = True
-    require_consent: bool = True
-    min_confidence: float = 0.55
-    max_memories_per_session: int = 8
-    redact_sensitive: bool = True
-
-
-@dataclass
-class VoiceSettings:
-    provider: str = "local_http"
-    fallback_to_text: bool = True
-    sample_rate: int = 24000
-    local_http: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
 class InputAudioSettings:
     recorder: str = "ffmpeg_avfoundation"
     ffmpeg_bin: str = "ffmpeg"
@@ -109,7 +95,6 @@ class BackendSettings:
     url_env: str = "MIGUELLM_BACKEND_URL"
     token_env: str = "MIGUELLM_BACKEND_TOKEN"
     timeout_seconds: float = 120.0
-    auth_token_env: str = "MIGUELLM_BACKEND_TOKEN"
 
     @property
     def resolved_url(self) -> str:
@@ -119,68 +104,52 @@ class BackendSettings:
     def client_token(self) -> str:
         return os.environ.get(self.token_env) or ""
 
-    @property
-    def server_token(self) -> str:
-        return os.environ.get(self.auth_token_env) or ""
-
-
-@dataclass
-class TTSServerSettings:
-    autostart: bool = False
-    command_env: str = "MIGUELLM_TTS_START_COMMAND"
-    cwd_env: str = "MIGUELLM_TTS_CWD"
-    startup_timeout_seconds: float = 90.0
-    log_path: str = "tmp/f5-tts-server.log"
-
-
-@dataclass
-class ProviderSettings:
-    dialogue: Dict[str, Any] = field(default_factory=dict)
-
 
 @dataclass
 class PathsSettings:
-    persona_dir: str = "persona"
-    persona_dir_env: str = "MIGUELLM_PERSONA_DIR"
-    memory_dir: str = "memory/auto"
     sessions_dir: str = "sessions"
-    consent_file: str = "memory/consent.json"
+    tmp_dir: str = "tmp"
 
 
 @dataclass
 class AppConfig:
     root: Path
     app: Dict[str, Any]
-    providers: ProviderSettings
-    voice: VoiceSettings
     input_audio: InputAudioSettings
     playback: PlaybackSettings
     backend: BackendSettings
-    tts_server: TTSServerSettings
     paths: PathsSettings
-    memory: MemorySettings
 
     @classmethod
     def load(cls, path: str) -> "AppConfig":
+        if path.startswith("package:"):
+            return cls.load_default(path.removeprefix("package:"))
         config_path = Path(path)
         data = _load_yaml(config_path)
         root = _project_root_for(config_path)
         load_local_secrets(root)
+        if root != Path.cwd():
+            load_local_secrets(Path.cwd())
         return cls.from_dict(root, data)
+
+    @classmethod
+    def load_default(cls, name: str) -> "AppConfig":
+        if name != "client.yaml":
+            raise ConfigError("Unknown bundled config: %s" % name)
+        defaults = resources.files("miguel_lm").joinpath("defaults")
+        data = _load_yaml(defaults.joinpath(name))
+        load_local_secrets(Path.cwd())
+        return cls.from_dict(Path.cwd(), data)
 
     @classmethod
     def from_dict(cls, root: Path, data: Dict[str, Any]) -> "AppConfig":
         return cls(
             root=root,
             app=dict(data.get("app") or {}),
-            providers=ProviderSettings(**dict(data.get("providers") or {})),
-            voice=VoiceSettings(**dict(data.get("voice") or {})),
             input_audio=InputAudioSettings(**dict(data.get("input_audio") or {})),
             playback=PlaybackSettings(**dict(data.get("playback") or {})),
             backend=BackendSettings(**dict(data.get("backend") or {})),
-            tts_server=TTSServerSettings(**dict(data.get("tts_server") or {})),
             paths=PathsSettings(**dict(data.get("paths") or {})),
-            memory=MemorySettings(**dict(data.get("memory") or {})),
         )
 
     def resolve(self, path: str) -> Path:
@@ -188,10 +157,6 @@ class AppConfig:
         if candidate.is_absolute():
             return candidate
         return (self.root / candidate).resolve()
-
-    def resolve_persona_dir(self) -> Path:
-        override = os.environ.get(self.paths.persona_dir_env, "").strip()
-        return self.resolve(override or self.paths.persona_dir)
 
     @property
     def app_name(self) -> str:

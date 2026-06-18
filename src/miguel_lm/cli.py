@@ -9,11 +9,10 @@ from typing import List, Optional
 from miguel_lm.audio_codec import pcm16_mono_to_wav_bytes
 from miguel_lm.audio_input import FfmpegAudioRecorder, list_ffmpeg_audio_devices, scan_audio_inputs
 from miguel_lm.config import AppConfig
-from miguel_lm.engine import MiguelLMRuntime
-from miguel_lm.persona import PersonaPack
-from miguel_lm.playback import AudioPlayer
-from miguel_lm.providers import build_stt_provider, build_tts_provider
-from miguel_lm.remote import RemoteMiguelLMRuntime
+from miguel_lm.remote import RemoteClientRuntime
+
+
+DEFAULT_CLIENT_CONFIG = "package:client.yaml"
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -29,33 +28,22 @@ def main(argv: Optional[List[str]] = None) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="miguellm")
     parser.set_defaults(func=run_command)
-    parser.add_argument("--config", default="config/dev.yaml", help="Path to YAML config.")
+    add_config_arg(parser)
     parser.add_argument("--text-only", action="store_true", help="Disable push-to-talk input in the TUI.")
 
     sub = parser.add_subparsers(dest="command")
 
-    run = sub.add_parser("run", help="Run MiguelLM.")
+    run = sub.add_parser("run", help="Run the terminal client.")
     add_config_arg(run)
     run.add_argument("--text-only", action="store_true", help="Disable push-to-talk input in the TUI.")
     run.set_defaults(func=run_command)
 
-    serve = sub.add_parser("serve", help="Run the private MiguelLM Linux backend.")
-    add_config_arg(serve, default="config/server.yaml")
-    serve.add_argument("--host", default="127.0.0.1", help="Backend bind host.")
-    serve.add_argument("--port", type=int, default=8765, help="Backend bind port.")
-    serve.set_defaults(func=serve_command)
-
-    validate = sub.add_parser("validate-persona", help="Validate the markdown persona pack.")
-    add_config_arg(validate)
-    validate.set_defaults(func=validate_persona_command)
-
-    test_tts = sub.add_parser("test-tts", help="Synthesize speech with the configured local TTS provider.")
+    test_tts = sub.add_parser("test-voice", help="Synthesize speech through the configured remote service.")
     add_config_arg(test_tts)
-    test_tts.add_argument("--text", default="Hello, this is MiguelLM speaking through the local voice path.")
-    test_tts.add_argument("--endpoint", default=None, help="Override local_http TTS endpoint for this test.")
-    test_tts.add_argument("--output", default="tmp/tts-test.wav", help="Where to save the synthesized WAV.")
+    test_tts.add_argument("--text", default="Voice test from the terminal client.")
+    test_tts.add_argument("--output", default="tmp/voice-test.wav", help="Where to save the synthesized WAV.")
     test_tts.add_argument("--no-play", action="store_true", help="Save the WAV without playing it locally.")
-    test_tts.set_defaults(func=test_tts_command)
+    test_tts.set_defaults(func=test_voice_command)
 
     audio_devices = sub.add_parser("audio-devices", help="List ffmpeg/avfoundation audio input devices.")
     add_config_arg(audio_devices)
@@ -70,12 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     test_audio = sub.add_parser("test-audio-input", help="Record a short microphone clip and optionally transcribe it.")
     add_config_arg(test_audio)
     test_audio.add_argument("--seconds", type=float, default=None, help="Recording duration.")
-    test_audio.add_argument("--audio-device", default=None, help='Override ffmpeg avfoundation input device, for example "none:1".')
+    test_audio.add_argument("--audio-device", default=None, help='Override ffmpeg input device, for example "none:1".')
     test_audio.add_argument("--output", default="tmp/visitor-test.wav", help="Where to save the test WAV.")
-    test_audio.add_argument("--transcribe", action="store_true", help="Also run OpenAI transcription.")
+    test_audio.add_argument("--transcribe", action="store_true", help="Also run remote transcription.")
     test_audio.set_defaults(func=test_audio_input_command)
 
-    memory = sub.add_parser("memory", help="Manage local memories outside the TUI.")
+    memory = sub.add_parser("memory", help="Manage remote memories outside the TUI.")
     memory_sub = memory.add_subparsers(dest="memory_command", required=True)
     memory_list = memory_sub.add_parser("list", help="List active memories.")
     add_config_arg(memory_list)
@@ -91,36 +79,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def add_config_arg(parser: argparse.ArgumentParser, default: str = "config/dev.yaml") -> None:
+def add_config_arg(parser: argparse.ArgumentParser, default: str = DEFAULT_CLIENT_CONFIG) -> None:
     parser.add_argument("--config", default=default, help="Path to YAML config.")
 
 
-def build_runtime(config: AppConfig):
-    if config.backend.mode == "remote":
-        return RemoteMiguelLMRuntime(config)
-    return MiguelLMRuntime.build(config)
+def build_runtime(config: AppConfig) -> RemoteClientRuntime:
+    if config.backend.mode != "remote":
+        raise RuntimeError("This public package only supports remote client mode.")
+    return RemoteClientRuntime(config)
 
 
 def run_command(args) -> int:
-    from miguel_lm.tui import MiguelLMApp
+    from miguel_lm.tui import TerminalClientApp
 
     config = AppConfig.load(args.config)
     runtime = build_runtime(config)
-    MiguelLMApp(runtime, text_only=getattr(args, "text_only", False)).run()
-    return 0
-
-
-def serve_command(args) -> int:
-    from miguel_lm.server import serve
-
-    serve(AppConfig.load(args.config), args.host, args.port)
-    return 0
-
-
-def validate_persona_command(args) -> int:
-    config = AppConfig.load(args.config)
-    pack = PersonaPack.load(config.resolve_persona_dir())
-    print("Persona OK: %d files" % len(pack.documents))
+    TerminalClientApp(runtime, text_only=getattr(args, "text_only", False)).run()
     return 0
 
 
@@ -171,53 +145,22 @@ async def _test_audio_input(config: AppConfig, output_path: Path, transcribe: bo
     if recorded.rms < 120:
         print("Warning: recording is very quiet. Try a different --audio-device or speak closer/louder.")
     if transcribe:
-        if config.backend.mode == "remote":
-            print("Transcribing on MiguelLM backend...")
-            text = RemoteMiguelLMRuntime(config).transcribe_wav(recorded.path)
-            print("Transcript: %s" % (text or "<empty>"))
-            return
-        provider = build_stt_provider(config)
-        if provider is None:
-            raise RuntimeError("No STT provider configured.")
-        print("Transcribing with OpenAI...")
-        text = await provider.transcribe_file(str(recorded.path))
+        print("Transcribing remotely...")
+        text = RemoteClientRuntime(config).transcribe_wav(recorded.path)
         print("Transcript: %s" % (text or "<empty>"))
 
 
-def test_tts_command(args) -> int:
+def test_voice_command(args) -> int:
     config = AppConfig.load(args.config)
-    if args.endpoint:
-        config.voice.local_http["default_endpoint"] = args.endpoint
-    asyncio.run(_test_tts(config, text=args.text, output_path=Path(args.output), play=not args.no_play))
+    asyncio.run(_test_voice(config, text=args.text, output_path=Path(args.output), play=not args.no_play))
     return 0
 
 
-async def _test_tts(config: AppConfig, text: str, output_path: Path, play: bool) -> None:
-    if config.backend.mode == "remote":
-        runtime = RemoteMiguelLMRuntime(config)
-        print("TTS provider: remote")
-        print("Endpoint: %s" % runtime.url)
-        clip = await runtime.synthesize(text)
-        resolved_output = config.resolve(str(output_path))
-        resolved_output.parent.mkdir(parents=True, exist_ok=True)
-        resolved_output.write_bytes(pcm16_mono_to_wav_bytes(clip.pcm, clip.sample_rate))
-        print("Saved WAV: %s" % resolved_output)
-        print("Audio: %d bytes PCM at %d Hz" % (len(clip.pcm), clip.sample_rate))
-        if play:
-            print("Playing locally...")
-            await runtime.player.play(clip)
-        return
-    provider = build_tts_provider(config)
-    if provider is None:
-        raise RuntimeError("No TTS provider configured.")
-    endpoint = getattr(provider, "endpoint", "")
-    healthy = provider.healthy() if hasattr(provider, "healthy") else True
-    print("TTS provider: %s" % getattr(provider, "name", "tts"))
-    if endpoint:
-        print("Endpoint: %s" % endpoint)
-        print("Health: %s" % ("ok" if healthy else "offline"))
-    print("Synthesizing...")
-    clip = await provider.synthesize(text)
+async def _test_voice(config: AppConfig, text: str, output_path: Path, play: bool) -> None:
+    runtime = RemoteClientRuntime(config)
+    print("Voice provider: remote")
+    print("Endpoint: %s" % runtime.url)
+    clip = await runtime.synthesize(text)
     resolved_output = config.resolve(str(output_path))
     resolved_output.parent.mkdir(parents=True, exist_ok=True)
     resolved_output.write_bytes(pcm16_mono_to_wav_bytes(clip.pcm, clip.sample_rate))
@@ -225,19 +168,19 @@ async def _test_tts(config: AppConfig, text: str, output_path: Path, play: bool)
     print("Audio: %d bytes PCM at %d Hz" % (len(clip.pcm), clip.sample_rate))
     if play:
         print("Playing locally...")
-        await AudioPlayer(config.playback, config.resolve("tmp")).play(clip)
+        await runtime.player.play(clip)
 
 
 def memory_list_command(args) -> int:
     runtime = build_runtime(AppConfig.load(args.config))
     rows = runtime.memory_summary()
-    print("\n".join(rows) if rows else "No local memories stored.")
+    print("\n".join(rows) if rows else "No memories stored.")
     return 0
 
 
 def memory_clear_command(args) -> int:
     runtime = build_runtime(AppConfig.load(args.config))
-    print("Deleted %d local memories." % runtime.clear_memory())
+    print("Deleted %d memories." % runtime.clear_memory())
     return 0
 
 

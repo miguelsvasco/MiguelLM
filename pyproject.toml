@@ -5,11 +5,27 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "miguellm"
 version = "0.1.0"
-description = "MiguelLM: a standalone retro terminal Miguel clone with text, push-to-talk, local memory, and local F5-TTS speech."
+description = "A small terminal client for a remote chat service."
 readme = "README.md"
 requires-python = ">=3.9"
+license = "MIT"
+authors = [
+    {name = "Miguel Vasco"},
+]
+keywords = ["terminal", "chat", "tui", "voice"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Chat",
+]
 dependencies = [
-    "openai>=2.0.0",
     "PyYAML>=6.0",
     "rich>=13.7",
     "textual>=0.58",
@@ -17,15 +33,27 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "build>=1.2",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "twine>=5.0",
 ]
 
 [project.scripts]
 miguellm = "miguel_lm.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/miguelsvasco/MiguelLM"
+Repository = "https://github.com/miguelsvasco/MiguelLM"
+Issues = "https://github.com/miguelsvasco/MiguelLM/issues"
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+miguel_lm = [
+    "defaults/*.yaml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

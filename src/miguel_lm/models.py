@@ -88,6 +88,48 @@ class AudioClip:
 
 
 @dataclass
+class RuntimeStatus:
+    tts_provider: str = "remote"
+    tts_endpoint: str = ""
+    tts_healthy: bool = False
+    memory_enabled: bool = False
+    player: str = ""
+
+
+@dataclass
+class ClientMetadata:
+    app_name: str = "MiguelLM"
+    subtitle: str = "remote terminal client"
+    intro_text: str = "Connected to the remote chat service. Type a message and press Enter."
+    assistant_label: str = "Assistant"
+    status_label: str = "MIGUELLM"
+    voice_test_text: str = "Voice test. If you hear this, remote speech playback is working."
+    privacy_text: str = (
+        "This client sends chat, optional microphone recordings, and memory commands to the configured "
+        "remote service. Durable memory is off unless enabled with /memory on."
+    )
+
+    @classmethod
+    def from_mapping(cls, data: Dict[str, Any], fallback: "ClientMetadata") -> "ClientMetadata":
+        app = data.get("app") if isinstance(data.get("app"), dict) else data
+
+        def text(name: str, default: str) -> str:
+            value = app.get(name)
+            return str(value).strip() if value is not None and str(value).strip() else default
+
+        app_name = text("app_name", text("name", fallback.app_name))
+        return cls(
+            app_name=app_name,
+            subtitle=text("subtitle", fallback.subtitle),
+            intro_text=text("intro_text", fallback.intro_text),
+            assistant_label=text("assistant_label", app_name if app_name else fallback.assistant_label),
+            status_label=text("status_label", app_name.upper() if app_name else fallback.status_label),
+            voice_test_text=text("voice_test_text", fallback.voice_test_text),
+            privacy_text=text("privacy_text", fallback.privacy_text),
+        )
+
+
+@dataclass
 class MemoryRecord:
     text: str
     source_utterance_ids: List[str]

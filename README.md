@@ -1,30 +1,43 @@
 # MiguelLM
 
-A standalone terminal version of Miguel's lab clone. It does not require Furhat
-or Virtual Furhat: people can type, or use push-to-talk microphone input, and the
-app responds with text plus speech from Miguel's private Linux backend.
+MiguelLM is a small terminal client for a hosted chat service. Install it,
+point it at the service URL you were given, and run `miguellm`.
 
-The public client does **not** need OpenAI secrets. By default, `miguellm`
-connects to a private MiguelLM backend on the Linux machine. That backend holds
-`OPENAI_API_KEY`, talks to local F5-TTS, and can start F5-TTS if it is down.
+The public package is client-only. It does not include server code, persona
+files, private prompts, model provider setup, voice assets, or operator notes.
+Display copy such as the app title, intro text, assistant label, and voice test
+line can be provided by the remote service at runtime.
 
-## Setup
+## Install
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install miguellm
 ```
 
-Public client settings can go in `.env`. Use a tunnel hostname, not a raw
-server IP:
+Until the first PyPI release is published, install directly from GitHub:
+
+```bash
+python -m pip install git+https://github.com/miguelsvasco/MiguelLM.git
+```
+
+`pipx` also works well if you want an isolated command-line install:
+
+```bash
+pipx install git+https://github.com/miguelsvasco/MiguelLM.git
+```
+
+## Configure
+
+The default backend is `https://miguellm.miguelvasco.com`. Create a local
+`.env` or `.env.local` file in the directory where you will run the command:
 
 ```dotenv
-MIGUELLM_BACKEND_URL=https://miguellm.example.com
-MIGUELLM_BACKEND_TOKEN=optional_shared_app_token
+MIGUELLM_BACKEND_TOKEN=your-token
 ```
 
-Do not put `OPENAI_API_KEY` in the public/client checkout.
+For development or alternate deployments, you can override the default with
+`MIGUELLM_BACKEND_URL`. Do not put private server files, prompts, model keys, or
+voice assets in this client checkout.
 
 ## Run
 
@@ -32,73 +45,41 @@ Do not put `OPENAI_API_KEY` in the public/client checkout.
 miguellm
 ```
 
-Type into the input bar and press Enter. Use `/help` inside the app for commands.
-Push-to-talk is available with `ctrl+r` when OpenAI transcription is configured.
-`miguellm run --config config/dev.yaml` is equivalent when you want to pass an
-explicit config path.
+Inside the app, type a message and press Enter. Use `/help` for available
+commands.
 
 Useful checks:
 
 ```bash
-miguellm validate-persona --config config/dev.yaml
-miguellm test-tts --config config/dev.yaml --text "Hello, this is Miguel's local terminal voice."
-miguellm audio-devices --config config/dev.yaml
-miguellm test-audio-input --config config/dev.yaml --transcribe
+miguellm run --text-only
+miguellm test-voice --no-play
 ```
 
-## Local Voice
-
-The Linux backend uses the same local HTTP F5-TTS contract as
-`miguel_furhat_llm`:
-`POST /synthesize` with JSON `{"text": "..."}` and a WAV response. The health
-probe is `GET /health` on the same host.
-
-On the Linux machine, create `.env` or `.env.local` with private values:
-
-```dotenv
-OPENAI_API_KEY=your_openai_key_here
-OPENAI_DIALOGUE_MODEL=gpt-5.4-mini
-OPENAI_TRANSCRIBE_MODEL=whisper-1
-LOCAL_TTS_ENDPOINT=http://127.0.0.1:7861/synthesize
-MIGUELLM_BACKEND_TOKEN=optional_shared_app_token
-MIGUELLM_PERSONA_DIR=/path/to/private/miguellm-persona
-
-# Optional: let `miguellm serve` start F5-TTS if /health is offline.
-MIGUELLM_TTS_CWD=/path/to/miguel_furhat_llm
-MIGUELLM_TTS_START_COMMAND=bash -lc 'source .venv-f5/bin/activate && python scripts/f5_tts_server.py --host 127.0.0.1 --port 7861 --device cuda --nfe-step 16 --speed 1.08 --ref-audio assets/input/audio/f5_reference.wav --ref-text-file assets/input/audio/f5_reference.txt'
-```
-
-Start the private backend on Linux, bound to localhost:
+## Development
 
 ```bash
-miguellm serve --config config/server.yaml --host 127.0.0.1 --port 8765
+python -m pip install -e ".[dev]"
+python -m pytest -q
+python scripts/check_public_safety.py
 ```
 
-Then expose it through a tunnel rather than opening a firewall port.
+Build the package locally:
 
-Recommended: Cloudflare Tunnel. `cloudflared` runs on the Linux machine and
-creates an outbound-only tunnel to Cloudflare, so the origin machine does not
-need a public routable IP or inbound port forwarding.
-
-For the full setup, see [docs/CLOUDFLARE_TUNNEL.md](docs/CLOUDFLARE_TUNNEL.md).
-The stable setup is a named Cloudflare Tunnel routing
-`https://miguellm.your-domain.example` to `http://127.0.0.1:8765`. The public
-client sets `MIGUELLM_BACKEND_URL` to that HTTPS hostname.
-
-Alternative: Tailscale Funnel can publish a local service through a Tailscale
-Funnel URL. That also avoids publishing the Linux machine's raw IP.
-
-If `MIGUELLM_BACKEND_TOKEN` is set on the server, clients must set the same app
-token locally. This token is not an OpenAI secret, but still should not be
-committed.
-
-The checked-in `persona/` folder is a public-safe placeholder. Put the real
-Miguel persona on the Linux machine outside this Git checkout, then set
-`MIGUELLM_PERSONA_DIR` to that folder before starting `miguellm serve`.
+```bash
+python -m build
+twine check dist/*
+```
 
 ## Privacy
 
-Durable memories are opt-in and are stored by the backend, not in the public
-client. The app will not write durable memories until `/memory on` is used.
-Transcripts, memories, private persona folders, and private voice assets are
-git-ignored.
+This client sends chat text, optional microphone recordings, and memory commands
+to the configured remote service. Server behavior, prompts, and storage policy
+are controlled by that service, not by this public client package.
+
+## Credits
+
+MiguelLM is by Miguel Vasco.
+
+## License
+
+MIT
