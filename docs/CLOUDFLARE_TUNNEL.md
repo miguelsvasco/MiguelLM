@@ -66,6 +66,23 @@ MIGUELLM_TTS_CWD=/home/miguel/Code/miguel_furhat_llm
 MIGUELLM_TTS_START_COMMAND=bash -lc 'source .venv-f5/bin/activate && python scripts/f5_tts_server.py --host 127.0.0.1 --port 7861 --device cuda --nfe-step 16 --speed 1.08 --ref-audio assets/input/audio/f5_reference.wav --ref-text-file assets/input/audio/f5_reference.txt'
 ```
 
+Create the private persona folder before starting the backend. For a first run,
+copy the public placeholder persona as a template, then edit it privately:
+
+```bash
+mkdir -p "$HOME/private/miguellm-persona"
+cp persona/*.md "$HOME/private/miguellm-persona/"
+```
+
+Then set:
+
+```dotenv
+MIGUELLM_PERSONA_DIR=/home/YOUR_LINUX_USER/private/miguellm-persona
+```
+
+Do not commit this private persona folder. It should live outside the Git
+checkout.
+
 ## 2. Start MiguelLM Backend Locally
 
 ```bash
