@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -41,6 +42,36 @@ def load_local_secrets(root: Path) -> List[Path]:
             _load_env_file(path)
             loaded.append(path)
     return loaded
+
+
+def load_user_secrets() -> List[Path]:
+    loaded = []
+    for path in [user_env_path(), Path.home() / ".miguellm.env"]:
+        if path.exists():
+            _load_env_file(path)
+            loaded.append(path)
+    return loaded
+
+
+def user_config_dir() -> Path:
+    if sys.platform == "win32" and os.environ.get("APPDATA"):
+        return Path(os.environ["APPDATA"]) / "miguellm"
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+    return config_home / "miguellm"
+
+
+def user_env_path() -> Path:
+    return user_config_dir() / ".env"
+
+
+def write_user_env(token: str, backend_url: str = "") -> Path:
+    path = user_env_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["MIGUELLM_BACKEND_TOKEN=%s" % token]
+    if backend_url:
+        lines.append("MIGUELLM_BACKEND_URL=%s" % backend_url)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
 
 
 def _load_env_file(path: Path) -> None:
@@ -130,6 +161,7 @@ class AppConfig:
         load_local_secrets(root)
         if root != Path.cwd():
             load_local_secrets(Path.cwd())
+        load_user_secrets()
         return cls.from_dict(root, data)
 
     @classmethod
@@ -139,6 +171,7 @@ class AppConfig:
         defaults = resources.files("miguel_lm").joinpath("defaults")
         data = _load_yaml(defaults.joinpath(name))
         load_local_secrets(Path.cwd())
+        load_user_secrets()
         return cls.from_dict(Path.cwd(), data)
 
     @classmethod

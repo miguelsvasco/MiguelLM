@@ -41,6 +41,7 @@ dev = [
 
 [project.scripts]
 miguellm = "miguel_lm.cli:main"
+miguelLM = "miguel_lm.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/miguelsvasco/MiguelLM"
@@ -49,6 +50,9 @@ Issues = "https://github.com/miguelsvasco/MiguelLM/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools]
+py-modules = ["miguellm"]
 
 [tool.setuptools.package-data]
 miguel_lm = [

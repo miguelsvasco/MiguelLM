@@ -20,16 +20,18 @@ Until the first PyPI release is published, install directly from GitHub:
 python -m pip install git+https://github.com/miguelsvasco/MiguelLM.git
 ```
 
-`pipx` also works well if you want an isolated command-line install:
+## Configure Once
+
+The default backend is `https://miguellm.miguelvasco.com`. Save your token once:
 
 ```bash
-pipx install git+https://github.com/miguelsvasco/MiguelLM.git
+python -m miguellm configure --token your-token
 ```
 
-## Configure
+After that, MiguelLM works from any directory.
 
-The default backend is `https://miguellm.miguelvasco.com`. Create a local
-`.env` or `.env.local` file in the directory where you will run the command:
+For one-off local overrides, you can still create `.env` or `.env.local` in the
+directory where you run the command:
 
 ```dotenv
 MIGUELLM_BACKEND_TOKEN=your-token
@@ -42,7 +44,15 @@ voice assets in this client checkout.
 ## Run
 
 ```bash
+python -m miguellm
+```
+
+If your Python scripts directory is on `PATH`, these command aliases are also
+installed:
+
+```bash
 miguellm
+miguelLM
 ```
 
 Inside the app, type a message and press Enter. Use `/help` for available
@@ -51,8 +61,8 @@ commands.
 Useful checks:
 
 ```bash
-miguellm run --text-only
-miguellm test-voice --no-play
+python -m miguellm run --text-only
+python -m miguellm test-voice --no-play
 ```
 
 ## Development

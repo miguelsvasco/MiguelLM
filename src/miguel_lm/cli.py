@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from miguel_lm.audio_codec import pcm16_mono_to_wav_bytes
 from miguel_lm.audio_input import FfmpegAudioRecorder, list_ffmpeg_audio_devices, scan_audio_inputs
-from miguel_lm.config import AppConfig
+from miguel_lm.config import AppConfig, write_user_env
 from miguel_lm.remote import RemoteClientRuntime
 
 
@@ -37,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_config_arg(run)
     run.add_argument("--text-only", action="store_true", help="Disable push-to-talk input in the TUI.")
     run.set_defaults(func=run_command)
+
+    configure = sub.add_parser("configure", help="Save your MiguelLM token for use from any directory.")
+    configure.add_argument("--token", required=True, help="MiguelLM backend token.")
+    configure.add_argument("--backend-url", default="", help="Optional backend URL override.")
+    configure.set_defaults(func=configure_command)
 
     test_tts = sub.add_parser("test-voice", help="Synthesize speech through the configured remote service.")
     add_config_arg(test_tts)
@@ -87,6 +92,13 @@ def build_runtime(config: AppConfig) -> RemoteClientRuntime:
     if config.backend.mode != "remote":
         raise RuntimeError("This public package only supports remote client mode.")
     return RemoteClientRuntime(config)
+
+
+def configure_command(args) -> int:
+    path = write_user_env(args.token, backend_url=args.backend_url)
+    print("Saved MiguelLM configuration to %s" % path)
+    print("You can now run: python -m miguellm")
+    return 0
 
 
 def run_command(args) -> int:
