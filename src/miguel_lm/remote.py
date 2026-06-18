@@ -14,6 +14,7 @@ from miguel_lm.config import AppConfig
 from miguel_lm.engine import RuntimeStatus
 from miguel_lm.models import AudioClip, DialogueResponse
 from miguel_lm.playback import AudioPlayer
+from miguel_lm import __version__
 
 
 class RemoteBackendError(RuntimeError):
@@ -112,7 +113,10 @@ class RemoteMiguelLMRuntime:
         timeout_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         body = None
-        headers = {"Accept": "application/json"}
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "MiguelLM/%s" % __version__,
+        }
         if payload is not None:
             body = json.dumps(payload).encode("utf-8")
             headers["Content-Type"] = "application/json"

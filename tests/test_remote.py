@@ -45,7 +45,13 @@ async def test_remote_answer_decodes_backend_audio(monkeypatch):
             ).encode("utf-8")
 
     def fake_urlopen(request, timeout):
-        requests.append((request.full_url, json.loads(request.data.decode("utf-8"))))
+        requests.append(
+            (
+                request.full_url,
+                json.loads(request.data.decode("utf-8")),
+                request.get_header("User-agent"),
+            )
+        )
         return FakeResponse()
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
@@ -58,3 +64,4 @@ async def test_remote_answer_decodes_backend_audio(monkeypatch):
     assert clip.provider == "local_http_tts"
     assert requests[0][0] == "http://127.0.0.1:8765/chat"
     assert requests[0][1] == {"text": "hello"}
+    assert requests[0][2] == "MiguelLM/0.1.0"
