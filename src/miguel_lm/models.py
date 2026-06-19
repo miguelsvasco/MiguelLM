@@ -96,6 +96,20 @@ class RuntimeStatus:
     player: str = ""
 
 
+# Generic, persona-free fallback boot sequence (server may override via metadata).
+DEFAULT_BOOT_LINES: List[str] = [
+    "ROBCO INDUSTRIES (TM) TERMLINK PROTOCOL",
+    "",
+    "INITIALIZING MIGUELLM...",
+    "> LOADING NEURAL INTERFACE ......... OK",
+    "> MOUNTING PERSONA MATRIX .......... OK",
+    "> CALIBRATING VOICE SYNTHESIZER .... OK",
+    "> ESTABLISHING UPLINK .............. OK",
+    "",
+    "WELCOME",
+]
+
+
 @dataclass
 class ClientMetadata:
     app_name: str = "MiguelLM"
@@ -108,6 +122,8 @@ class ClientMetadata:
         "This client sends chat, optional microphone recordings, and memory commands to the configured "
         "remote service. Durable memory is off unless enabled with /memory on."
     )
+    boot_lines: List[str] = field(default_factory=lambda: list(DEFAULT_BOOT_LINES))
+    has_head: bool = False
 
     @classmethod
     def from_mapping(cls, data: Dict[str, Any], fallback: "ClientMetadata") -> "ClientMetadata":
@@ -118,6 +134,11 @@ class ClientMetadata:
             return str(value).strip() if value is not None and str(value).strip() else default
 
         app_name = text("app_name", text("name", fallback.app_name))
+        boot_lines = data.get("boot_lines")
+        if not isinstance(boot_lines, list) or not boot_lines:
+            boot_lines = list(fallback.boot_lines)
+        else:
+            boot_lines = [str(line) for line in boot_lines]
         return cls(
             app_name=app_name,
             subtitle=text("subtitle", fallback.subtitle),
@@ -126,6 +147,8 @@ class ClientMetadata:
             status_label=text("status_label", app_name.upper() if app_name else fallback.status_label),
             voice_test_text=text("voice_test_text", fallback.voice_test_text),
             privacy_text=text("privacy_text", fallback.privacy_text),
+            boot_lines=boot_lines,
+            has_head=bool(data.get("has_head", fallback.has_head)),
         )
 
 

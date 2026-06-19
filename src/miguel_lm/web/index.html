@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MiguelLM</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <!-- CRT effects overlay (scanlines + flicker + vignette) -->
@@ -15,7 +15,7 @@
   </div>
 
   <!-- Fake RobCo boot sequence -->
-  <section id="boot" class="boot">
+  <section id="boot" class="boot hidden">
     <pre id="boot-text" class="boot-text"></pre>
     <div class="boot-hint">[ press any key to skip ]</div>
   </section>
@@ -55,15 +55,15 @@
         <form id="composer" class="composer" autocomplete="off">
           <span class="prompt-caret">&gt;</span>
           <input id="input" class="input" type="text" placeholder="Talk to MiguelLM..." autofocus />
-          <button id="mic" class="btn mic" type="button" title="Push to talk (hold)" aria-label="Push to talk">REC</button>
+          <button id="mic" class="btn mic" type="button" title="Push to talk" aria-label="Push to talk">REC</button>
           <button id="send" class="btn send" type="submit" aria-label="Send">SEND</button>
         </form>
       </div>
     </div>
   </main>
 
-  <script src="/static/vendor/three.min.js"></script>
-  <script src="/static/vendor/GLTFLoader.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="vendor/three.min.js"></script>
+  <script src="vendor/GLTFLoader.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

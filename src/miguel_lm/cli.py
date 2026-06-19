@@ -38,6 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--text-only", action="store_true", help="Disable push-to-talk input in the TUI.")
     run.set_defaults(func=run_command)
 
+    app = sub.add_parser("app", help="Launch the MiguelLM desktop app (graphical window).")
+    add_config_arg(app)
+    app.set_defaults(func=app_command)
+
     configure = sub.add_parser("configure", help="Save your MiguelLM token for use from any directory.")
     configure.add_argument("--token", required=True, help="MiguelLM backend token.")
     configure.add_argument("--backend-url", default="", help="Optional backend URL override.")
@@ -108,6 +112,15 @@ def run_command(args) -> int:
     runtime = build_runtime(config)
     TerminalClientApp(runtime, text_only=getattr(args, "text_only", False)).run()
     return 0
+
+
+def app_command(args) -> int:
+    from miguel_lm.desktop import launch_app
+
+    config = AppConfig.load(args.config)
+    if config.backend.mode != "remote":
+        raise RuntimeError("This public package only supports remote client mode.")
+    return launch_app(config)
 
 
 def audio_devices_command(args) -> int:

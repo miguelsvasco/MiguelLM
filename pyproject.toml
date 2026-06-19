@@ -29,9 +29,13 @@ dependencies = [
     "PyYAML>=6.0",
     "rich>=13.7",
     "textual>=0.58",
+    "pywebview>=5",
 ]
 
 [project.optional-dependencies]
+app = [
+    "pywebview>=5",
+]
 dev = [
     "build>=1.2",
     "pytest>=8.0",
