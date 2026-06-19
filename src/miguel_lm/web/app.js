@@ -179,8 +179,11 @@
       var size = box.getSize(new THREE.Vector3());
       var center = box.getCenter(new THREE.Vector3());
       var scale = 1.6 / (Math.max(size.x, size.y, size.z) || 1);
-      gltf.scene.traverse(function (node) {
-        if (!node.isMesh) return;
+      // Collect meshes FIRST — never mutate the tree during traverse(), or the
+      // wireframe children we add get re-traversed (infinite recursion).
+      var meshes = [];
+      gltf.scene.traverse(function (node) { if (node.isMesh) meshes.push(node); });
+      meshes.forEach(function (node) {
         var geom = node.geometry;
         node.material = new THREE.MeshBasicMaterial({ color: 0x0c2c14, transparent: true, opacity: 0.28 });
         node.material.morphTargets = true;
