@@ -40,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     app = sub.add_parser("app", help="Launch the MiguelLM desktop app (graphical window).")
     add_config_arg(app)
+    app.add_argument("--debug", action="store_true", help="Open the webview inspector for debugging.")
     app.set_defaults(func=app_command)
 
     configure = sub.add_parser("configure", help="Save your MiguelLM token for use from any directory.")
@@ -120,7 +121,7 @@ def app_command(args) -> int:
     config = AppConfig.load(args.config)
     if config.backend.mode != "remote":
         raise RuntimeError("This public package only supports remote client mode.")
-    return launch_app(config)
+    return launch_app(config, debug=getattr(args, "debug", False))
 
 
 def audio_devices_command(args) -> int:

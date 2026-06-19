@@ -4,6 +4,24 @@
 (function () {
   "use strict";
 
+  // Surface JS/load errors into the page so they're visible without devtools.
+  function showError(msg) {
+    try {
+      var el = document.getElementById("messages");
+      if (!el) return;
+      var d = document.createElement("div");
+      d.className = "msg error";
+      d.innerHTML = '<div class="who">SYSTEM</div>';
+      var b = document.createElement("div");
+      b.className = "bubble";
+      b.textContent = String(msg);
+      d.appendChild(b);
+      el.appendChild(d);
+    } catch (e) {}
+  }
+  window.addEventListener("error", function (e) { showError("JS error: " + (e.message || e.error)); });
+  window.addEventListener("unhandledrejection", function (e) { showError("Promise error: " + (e.reason && e.reason.message || e.reason)); });
+
   var EMOTIONS = ["warm", "amused", "confused", "serious", "speaking"];
   var DEFAULT_BOOT = [
     "ROBCO INDUSTRIES (TM) TERMLINK PROTOCOL",
@@ -123,7 +141,7 @@
         ok = true;
         animate();
       } catch (e) {
-        console.warn("Head init failed", e);
+        showError("WebGL init failed (no 3D head): " + (e && e.message ? e.message : e));
         degrade();
       }
     }
@@ -144,13 +162,15 @@
     }
 
     function loadHeadFromBase64(b64) {
-      if (!ok || !THREE.GLTFLoader || !b64) return;
+      if (!ok) { showError("3D head: WebGL/THREE not available in this webview."); return; }
+      if (!THREE.GLTFLoader) { showError("3D head: GLTFLoader script did not load."); return; }
+      if (!b64) { showError("3D head: backend returned no model."); return; }
       var loader = new THREE.GLTFLoader();
       try {
         loader.parse(b64ToArrayBuffer(b64), "", onHead, function (err) {
-          console.warn("Head parse failed", err && err.message);
+          showError("3D head parse failed: " + (err && err.message ? err.message : err));
         });
-      } catch (e) { console.warn("Head parse threw", e); }
+      } catch (e) { showError("3D head parse threw: " + e.message); }
     }
 
     function onHead(gltf) {
@@ -441,8 +461,10 @@
     applyMetadata(meta);
     if (meta.has_head && API) {
       Promise.resolve(API.head_model_b64()).then(function (b64) {
-        if (b64) Head.loadHeadFromBase64(b64);
-      }).catch(function () {});
+        Head.loadHeadFromBase64(b64);
+      }).catch(function (e) { showError("Fetching 3D head failed: " + (e && e.message || e)); });
+    } else if (!meta.has_head) {
+      showError("Backend reports no head model (has_head=false).");
     }
     runBoot(Array.isArray(meta.boot_lines) && meta.boot_lines.length ? meta.boot_lines : DEFAULT_BOOT);
   });

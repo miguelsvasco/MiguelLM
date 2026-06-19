@@ -63,7 +63,7 @@ def _index_path() -> Path:
     return Path(str(resources.files("miguel_lm").joinpath("web", "index.html")))
 
 
-def launch_app(config: AppConfig) -> int:
+def launch_app(config: AppConfig, debug: bool = False) -> int:
     try:
         import webview  # pywebview
     except ImportError:
@@ -89,7 +89,10 @@ def launch_app(config: AppConfig) -> int:
         background_color="#020503",
     )
     try:
-        webview.start()
+        # http_server=True serves the bundled UI over an internal localhost server
+        # instead of file:// — required on macOS WKWebView so the vendored scripts,
+        # WebGL, and relative assets load reliably. debug=True enables the inspector.
+        webview.start(http_server=True, debug=debug)
     finally:
         try:
             asyncio.run(runtime.close())
