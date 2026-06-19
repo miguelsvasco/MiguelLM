@@ -115,7 +115,7 @@
     var loaded = false;
     var currentEmotion = "normal";
     var speaking = false, analyser = null, freqData = null;
-    var mouthOpen = false, lastSwap = 0, raf = null;
+    var mouthOpen = false, lastSwap = 0, raf = null, env = 0;
 
     function init() { /* nothing until avatars arrive; the fallback ring shows meanwhile */ }
 
@@ -164,6 +164,7 @@
       if (analyser) freqData = new Uint8Array(analyser.fftSize);
       if (img) img.classList.toggle("speaking", speaking);
       if (speaking) {
+        env = 0;
         if (!raf) raf = requestAnimationFrame(flap);
       } else {
         if (raf) { cancelAnimationFrame(raf); raf = null; }
@@ -172,12 +173,14 @@
       }
     }
 
-    // Mouth movement is deliberately calm: hold each frame for at least MIN_HOLD ms
-    // and use hysteresis (open at a higher amplitude than it closes) so the avatar
-    // doesn't strobe between the resting and talking frames.
-    var MOUTH_MIN_HOLD = 160;   // ms a frame stays put before it may change
-    var MOUTH_OPEN_AT = 0.11;   // amplitude to open the mouth
-    var MOUTH_CLOSE_AT = 0.05;  // amplitude to close it again
+    // Mouth movement is deliberately calm. We track a *smoothed* speech envelope
+    // (a low-pass of the audio amplitude) instead of the jittery instantaneous
+    // level, then gate frame swaps with hysteresis + a minimum hold time so the
+    // avatar opens roughly per word and rests between them, not per audio sample.
+    var MOUTH_SMOOTH = 0.15;    // envelope follow rate (lower = smoother/lazier)
+    var MOUTH_MIN_HOLD = 220;   // ms a frame stays put before it may change
+    var MOUTH_OPEN_AT = 0.14;   // smoothed level to open the mouth
+    var MOUTH_CLOSE_AT = 0.07;  // smoothed level to close it again
     function flap(ts) {
       if (!speaking) { raf = null; return; }
       raf = requestAnimationFrame(flap);
@@ -186,8 +189,8 @@
         analyser.getByteTimeDomainData(freqData);
         var sum = 0;
         for (var i = 0; i < freqData.length; i++) { var v = (freqData[i] - 128) / 128; sum += v * v; }
-        var amp = Math.sqrt(sum / freqData.length);
-        want = mouthOpen ? amp > MOUTH_CLOSE_AT : amp > MOUTH_OPEN_AT;
+        env += (Math.sqrt(sum / freqData.length) - env) * MOUTH_SMOOTH;
+        want = mouthOpen ? env > MOUTH_CLOSE_AT : env > MOUTH_OPEN_AT;
       } else {
         // No analyser (audio missing): just flap slowly for some life.
         want = !mouthOpen;
