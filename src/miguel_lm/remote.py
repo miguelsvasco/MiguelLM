@@ -153,6 +153,13 @@ class RemoteClientRuntime:
         """
         return self._request_json("GET", "/assets/avatars", tolerate_errors=True) or {}
 
+    def fetch_ascii_avatars(self) -> Dict[str, Any]:
+        """Emotion -> {idle[, talking]} ASCII-art map from /assets/avatars_ascii.
+
+        Used by the terminal UI. Returns an empty dict if the backend serves none.
+        """
+        return self._request_json("GET", "/assets/avatars_ascii", tolerate_errors=True) or {}
+
     def _request_json(
         self,
         method: str,

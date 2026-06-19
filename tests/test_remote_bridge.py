@@ -28,6 +28,7 @@ def test_metadata_dict_and_boot_lines(monkeypatch):
         "app": {"name": "MiguelLM", "intro_text": "hi"},
         "boot_lines": ["L1", "L2"],
         "has_avatars": True,
+        "has_ascii_avatars": True,
     }
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: _fake_json_response(payload))
     runtime = RemoteClientRuntime(AppConfig.load("config/dev.yaml"))
@@ -36,6 +37,7 @@ def test_metadata_dict_and_boot_lines(monkeypatch):
     meta = runtime._metadata.from_mapping(payload, runtime.metadata)
     assert meta.boot_lines == ["L1", "L2"]
     assert meta.has_avatars is True
+    assert meta.has_ascii_avatars is True
 
 
 def test_chat_payload_returns_raw_dict(monkeypatch):
@@ -76,3 +78,17 @@ def test_fetch_avatars_empty_on_404(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     runtime = RemoteClientRuntime(AppConfig.load("config/dev.yaml"))
     assert runtime.fetch_avatars() == {}
+
+
+def test_fetch_ascii_avatars_returns_map(monkeypatch):
+    payload = {"normal": {"idle": "REST", "talking": "OPEN"}}
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        return _fake_json_response(payload)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    runtime = RemoteClientRuntime(AppConfig.load("config/dev.yaml"))
+    assert runtime.fetch_ascii_avatars() == payload
+    assert captured["url"].endswith("/assets/avatars_ascii")

@@ -33,17 +33,25 @@ Ctrl+L                clear transcript
 
 
 class Viewport(Static):
-    """ASCII face floating in an animated hyperspace starfield."""
+    """The face pane.
+
+    Shows the persona's detailed ASCII avatar (served by the backend, per emotion,
+    with an idle and a talking frame) when available, centered and clipped to the
+    pane. Falls back to the generic ``faces`` art floating in a starfield when the
+    backend serves no ASCII avatars (keeps the public package self-contained)."""
 
     COLS = 42
     ROWS = 16
+    # While speaking, swap idle<->talking every this many 0.12s ticks (calm cadence).
+    TALK_TICKS = 3
 
     def __init__(self) -> None:
         super().__init__("", id="viewport", markup=False)
-        self._emotion = "warm"
+        self._emotion = "normal"
         self._speaking = False
         self._frame = 0
         self._stars: List[list] = []
+        self._avatars: dict = {}  # emotion -> {"idle": [lines], "talking": [lines]}
 
     def on_mount(self) -> None:
         self._stars = [
@@ -52,14 +60,46 @@ class Viewport(Static):
         ]
         self.set_interval(0.12, self._tick)
 
+    def set_avatars(self, avatars: dict) -> None:
+        """Store the backend ASCII avatars and size the pane to the art."""
+        parsed = {}
+        max_w = 0
+        for emotion, frames in (avatars or {}).items():
+            entry = {}
+            for variant in ("idle", "talking"):
+                art = frames.get(variant)
+                if art:
+                    lines = art.split("\n")
+                    entry[variant] = lines
+                    max_w = max(max_w, max((len(line) for line in lines), default=0))
+            if "idle" in entry:
+                parsed[str(emotion).lower()] = entry
+        self._avatars = parsed
+        if parsed:
+            # Widen the pane to fit the art (+2 border, +2 padding); Textual clips
+            # the overflow on narrower terminals, keeping the centered face visible.
+            self.styles.width = max_w + 4
+
     def set_emotion(self, emotion: str) -> None:
-        self._emotion = emotion
+        self._emotion = emotion or "normal"
 
     def set_speaking(self, on: bool) -> None:
         self._speaking = on
 
+    def _avatar_frame(self) -> Optional[List[str]]:
+        """The ASCII art lines for the current emotion/variant, or None to fall back."""
+        entry = self._avatars.get(self._emotion) or self._avatars.get("normal")
+        if not entry:
+            return None
+        talking = self._speaking and "talking" in entry and (self._frame // self.TALK_TICKS) % 2 == 1
+        return entry["talking" if talking else "idle"]
+
     def _tick(self) -> None:
         self._frame += 1
+        art = self._avatar_frame()
+        if art is not None:
+            self.update(self._render_avatar(art))
+            return
         speed = 1.8 if self._speaking else 0.7
         for star in self._stars:
             star[0] += speed
@@ -68,6 +108,26 @@ class Viewport(Static):
                 star[1] = random.randint(0, self.ROWS - 1)
                 star[2] = random.choice(".:+*")
         self.update(self._build_frame())
+
+    def _render_avatar(self, art: List[str]) -> str:
+        """Center the art in the pane's content area, clipping overflow."""
+        size = self.content_size
+        cols = size.width or self.COLS
+        rows = size.height or self.ROWS
+        fh = len(art)
+        fw = max((len(line) for line in art), default=0)
+        # Offsets: negative when the art is larger than the pane (crop centered).
+        oy = (rows - fh) // 2
+        ox = (cols - fw) // 2
+        grid = [[" "] * cols for _ in range(rows)]
+        for i, line in enumerate(art):
+            yy = oy + i
+            if 0 <= yy < rows:
+                for j, ch in enumerate(line):
+                    xx = ox + j
+                    if ch != " " and 0 <= xx < cols:
+                        grid[yy][xx] = ch
+        return "\n".join("".join(row) for row in grid)
 
     def _build_frame(self) -> str:
         grid = [[" "] * self.COLS for _ in range(self.ROWS)]
@@ -194,6 +254,12 @@ class TerminalClientApp(App):
         self.metadata = await self.runtime.refresh_metadata()
         self.title = self.metadata.app_name
         self.sub_title = self.metadata.subtitle
+        if self.metadata.has_ascii_avatars:
+            try:
+                avatars = await asyncio.to_thread(self.runtime.fetch_ascii_avatars)
+                self.query_one("Viewport", Viewport).set_avatars(avatars)
+            except Exception:  # noqa: BLE001 - avatars are optional eye-candy
+                pass
         self._update_status("Booting")
         self.set_interval(0.5, self._blink_thinking)
         await self._run_boot()
@@ -277,20 +343,20 @@ class TerminalClientApp(App):
         log = self.query_one("#transcript", RichLog)
         log.write(Panel(text, title=source, border_style="bright_green"))
         self._set_thinking(True)
-        self.query_one("Viewport", Viewport).set_emotion("confused")
+        self.query_one("Viewport", Viewport).set_emotion("thinking")
         try:
             response = await self.runtime.answer(text)
         except Exception as exc:
             self._set_thinking(False)
             self._system("Dialogue failed: %s" % exc)
-            self.query_one("Viewport", Viewport).set_emotion("serious")
+            self.query_one("Viewport", Viewport).set_emotion("grumpy")
             self._busy = False
             self._update_status("Ready")
             return
         self._set_thinking(False)
         viewport = self.query_one("Viewport", Viewport)
-        viewport.set_emotion(response.emotion or "warm")
-        await self._deliver(response.spoken_text, response.emotion or "warm")
+        viewport.set_emotion(response.emotion or "normal")
+        await self._deliver(response.spoken_text, response.emotion or "normal")
         self._busy = False
         self._update_status("Ready")
 
@@ -308,7 +374,7 @@ class TerminalClientApp(App):
             except Exception:
                 pass
         viewport.set_speaking(False)
-        viewport.set_emotion("warm" if emotion == "speaking" else emotion)
+        viewport.set_emotion(emotion or "normal")
         # Commit the finished line to the transcript and clear the live reply area.
         self.query_one("#transcript", RichLog).write(
             Panel(text, title=self.metadata.assistant_label, border_style="green")

@@ -9,31 +9,46 @@ from __future__ import annotations
 
 from typing import List
 
-EMOTIONS: List[str] = ["warm", "amused", "confused", "serious", "speaking"]
+EMOTIONS: List[str] = [
+    "normal", "happy", "sad", "grumpy", "love", "scared", "confused", "mischievous", "thinking",
+]
 
 _W = 15  # inner width of the face frame
+_FALLBACK = "normal"
 
 # Per-emotion facial features (pure ASCII so monospace columns always line up).
 _BROW = {
-    "warm": "",
-    "amused": "/         \\",
+    "normal": "",
+    "happy": "",
+    "sad": "\\         /",
+    "grumpy": "\\         /",
+    "love": "",
+    "scared": "/         \\",
     "confused": "?",
-    "serious": "___     ___",
-    "speaking": "",
+    "mischievous": "_         _",
+    "thinking": "_       ___",
 }
 _EYES = {
-    "warm": "o         o",
-    "amused": "^         ^",
+    "normal": "o         o",
+    "happy": "^         ^",
+    "sad": "u         u",
+    "grumpy": ">         <",
+    "love": "<         <",
+    "scared": "O         O",
     "confused": "o         O",
-    "serious": "=         =",
-    "speaking": "o         o",
+    "mischievous": "-         ^",
+    "thinking": "o         -",
 }
 _MOUTH_REST = {
-    "warm": "\\_______/",
-    "amused": "\\__ ___/",
+    "normal": "\\_______/",
+    "happy": "\\__ ___/",
+    "sad": "/-------\\",
+    "grumpy": "/-------\\",
+    "love": "\\__ ___/",
+    "scared": "o",
     "confused": "o",
-    "serious": "/-------\\",
-    "speaking": "---------",
+    "mischievous": "\\___ __/",
+    "thinking": "  ---",
 }
 _MOUTH_TALK = ["---------", "(  ___  )"]  # closed / open, toggled while speaking
 _NOSE = "L"
@@ -55,7 +70,7 @@ def render(emotion: str, frame: int = 0, speaking: bool = False) -> str:
     While ``speaking`` the mouth alternates between closed/open based on ``frame``
     (a simple rhythmic lip-sync). Unknown emotions fall back to ``warm``.
     """
-    key = emotion if emotion in _EYES else "warm"
+    key = emotion if emotion in _EYES else _FALLBACK
     if speaking:
         mouth = _MOUTH_TALK[frame % len(_MOUTH_TALK)]
     else:

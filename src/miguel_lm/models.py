@@ -124,6 +124,7 @@ class ClientMetadata:
     )
     boot_lines: List[str] = field(default_factory=lambda: list(DEFAULT_BOOT_LINES))
     has_avatars: bool = False
+    has_ascii_avatars: bool = False
 
     @classmethod
     def from_mapping(cls, data: Dict[str, Any], fallback: "ClientMetadata") -> "ClientMetadata":
@@ -149,6 +150,7 @@ class ClientMetadata:
             privacy_text=text("privacy_text", fallback.privacy_text),
             boot_lines=boot_lines,
             has_avatars=bool(data.get("has_avatars", fallback.has_avatars)),
+            has_ascii_avatars=bool(data.get("has_ascii_avatars", fallback.has_ascii_avatars)),
         )
 
 
