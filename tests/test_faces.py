@@ -9,10 +9,10 @@ def test_face_renders_for_every_emotion():
 
 
 def test_speaking_toggles_mouth_open_and_closed():
-    closed = faces.render("warm", frame=0, speaking=True)
-    opened = faces.render("warm", frame=1, speaking=True)
+    closed = faces.render("normal", frame=0, speaking=True)
+    opened = faces.render("normal", frame=1, speaking=True)
     assert closed != opened
 
 
-def test_unknown_emotion_falls_back_to_warm():
-    assert faces.render("bogus-emotion") == faces.render("warm")
+def test_unknown_emotion_falls_back_to_normal():
+    assert faces.render("bogus-emotion") == faces.render("normal")

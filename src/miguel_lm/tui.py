@@ -14,6 +14,34 @@ from miguel_lm import faces
 from miguel_lm.models import AudioClip, ClientMetadata
 from miguel_lm.remote import RemoteClientRuntime
 
+# Viewport ticks at 0.12s; build one envelope sample per tick so playback and the
+# mouth animation stay roughly in step without tracking wall-clock time.
+_MOUTH_TICK_SECONDS = 0.12
+
+
+def mouth_envelope(pcm: bytes, sample_rate: int, hop_seconds: float = _MOUTH_TICK_SECONDS) -> List[float]:
+    """Peak-normalized per-hop loudness (RMS) of 16-bit mono PCM, for lip-sync.
+
+    Returns one value per ``hop_seconds`` window so the terminal avatar's mouth can
+    follow the speech envelope. Empty if there's no usable audio."""
+    import array
+
+    if not pcm or not sample_rate:
+        return []
+    samples = array.array("h")
+    samples.frombytes(pcm[: len(pcm) - (len(pcm) % 2)])
+    if not samples:
+        return []
+    hop = max(1, int(sample_rate * hop_seconds))
+    env: List[float] = []
+    for start in range(0, len(samples), hop):
+        window = samples[start : start + hop]
+        if not window:
+            break
+        env.append((sum(s * s for s in window) / len(window)) ** 0.5)
+    peak = max(env) if env else 0.0
+    return [v / peak for v in env] if peak else []
+
 
 HELP_TEXT = """Commands:
 /help                 show this help
@@ -42,8 +70,13 @@ class Viewport(Static):
 
     COLS = 42
     ROWS = 16
-    # While speaking, swap idle<->talking every this many 0.12s ticks (calm cadence).
-    TALK_TICKS = 3
+    # Mouth gating (ticks are 0.12s). Hysteresis + a minimum hold keep the mouth
+    # from strobing between the resting and talking frames; it follows the speech
+    # envelope, opening on words and resting between them.
+    _MOUTH_OPEN_AT = 0.18    # envelope level (0..1, peak-normalized) to open
+    _MOUTH_CLOSE_AT = 0.09   # level to close again
+    _MOUTH_HOLD_VOICED = 2   # min ticks between swaps when driven by audio
+    _MOUTH_HOLD_BLIND = 4    # min ticks when there's no audio envelope
 
     def __init__(self) -> None:
         super().__init__("", id="viewport", markup=False)
@@ -52,6 +85,10 @@ class Viewport(Static):
         self._frame = 0
         self._stars: List[list] = []
         self._avatars: dict = {}  # emotion -> {"idle": [lines], "talking": [lines]}
+        self._envelope: List[float] = []  # per-tick speech loudness for the mouth
+        self._env_idx = 0
+        self._mouth_open = False
+        self._mouth_hold = 0
 
     def on_mount(self) -> None:
         self._stars = [
@@ -83,19 +120,41 @@ class Viewport(Static):
     def set_emotion(self, emotion: str) -> None:
         self._emotion = emotion or "normal"
 
-    def set_speaking(self, on: bool) -> None:
+    def set_speaking(self, on: bool, envelope: Optional[List[float]] = None) -> None:
         self._speaking = on
+        self._envelope = envelope or []
+        self._env_idx = 0
+        self._mouth_open = False
+        self._mouth_hold = 0
+
+    def _step_mouth(self) -> None:
+        """Advance the open/closed mouth state from the speech envelope (or, with no
+        audio, a slow blind flap), gated by hysteresis and a minimum hold time."""
+        if self._envelope:
+            amp = self._envelope[min(self._env_idx, len(self._envelope) - 1)]
+            self._env_idx += 1
+            want = amp > (self._MOUTH_CLOSE_AT if self._mouth_open else self._MOUTH_OPEN_AT)
+            hold = self._MOUTH_HOLD_VOICED
+        else:
+            want = not self._mouth_open
+            hold = self._MOUTH_HOLD_BLIND
+        self._mouth_hold += 1
+        if want != self._mouth_open and self._mouth_hold >= hold:
+            self._mouth_open = want
+            self._mouth_hold = 0
 
     def _avatar_frame(self) -> Optional[List[str]]:
         """The ASCII art lines for the current emotion/variant, or None to fall back."""
         entry = self._avatars.get(self._emotion) or self._avatars.get("normal")
         if not entry:
             return None
-        talking = self._speaking and "talking" in entry and (self._frame // self.TALK_TICKS) % 2 == 1
+        talking = self._speaking and self._mouth_open and "talking" in entry
         return entry["talking" if talking else "idle"]
 
     def _tick(self) -> None:
         self._frame += 1
+        if self._speaking:
+            self._step_mouth()
         art = self._avatar_frame()
         if art is not None:
             self.update(self._render_avatar(art))
@@ -365,7 +424,8 @@ class TerminalClientApp(App):
         clip = await self._safe_synthesize(text)
         duration = self._clip_duration(clip)
         self._update_status("Speaking")
-        viewport.set_speaking(True)
+        envelope = mouth_envelope(clip.pcm, clip.sample_rate) if clip is not None else []
+        viewport.set_speaking(True, envelope)
         play_task = asyncio.create_task(self._play(clip)) if clip is not None else None
         await self._typewrite(text, duration)
         if play_task is not None:
