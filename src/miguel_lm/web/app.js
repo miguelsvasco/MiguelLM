@@ -183,17 +183,18 @@
       var meshes = [];
       gltf.scene.traverse(function (node) { if (node.isMesh) meshes.push(node); });
       meshes.forEach(function (node) {
-        // Use the photo texture baked into the GLB so the head looks like the
-        // real person (unlit MeshBasicMaterial = always visible, no lights needed).
-        // Fall back to a green wireframe only if there's no texture.
+        // Render unlit (MeshBasicMaterial = always visible, no scene lights needed)
+        // and double-sided (avoids backface culling hiding parts of arbitrary GLBs).
+        // Prefer the baked photo texture, else vertex colors, else green wireframe.
         var src = node.material;
         var map = src && src.map ? src.map : null;
-        var mat = new THREE.MeshBasicMaterial({
-          map: map,
-          color: map ? 0xffffff : 0x2cff70,
-          wireframe: !map,
-        });
-        mat.morphTargets = true;
+        var hasVertexColor = node.geometry && node.geometry.attributes && node.geometry.attributes.color;
+        var opts = { side: THREE.DoubleSide };
+        if (map) { opts.map = map; opts.color = 0xffffff; }
+        else if (hasVertexColor) { opts.vertexColors = true; }
+        else { opts.color = 0x2cff70; opts.wireframe = true; }
+        var mat = new THREE.MeshBasicMaterial(opts);
+        mat.morphTargets = true; // harmless if the mesh has none
         node.material = mat;
         if (node.morphTargetDictionary) morphDict = node.morphTargetDictionary;
         morphMeshes.push(node);
@@ -271,6 +272,10 @@
         }
         jaw += (targetJaw - jaw) * 0.4;
         applyMorph("jawOpen", jaw);
+        // If the model has no jaw morph (e.g. a Meshy head), give a subtle breathing
+        // pulse while speaking so there's still some "talking" feedback.
+        var hasJaw = "jawOpen" in morphDict;
+        headGroup.scale.setScalar(speaking && !hasJaw ? 1 + Math.sin(t * 16) * 0.02 : 1);
       }
 
       renderer.render(scene, camera);
