@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>MiguelLM</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <!-- CRT effects overlay (scanlines + flicker + vignette) -->
+  <div id="crt" aria-hidden="true">
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+    <div class="flicker"></div>
+  </div>
+
+  <!-- Fake RobCo boot sequence -->
+  <section id="boot" class="boot">
+    <pre id="boot-text" class="boot-text"></pre>
+    <div class="boot-hint">[ press any key to skip ]</div>
+  </section>
+
+  <!-- Main app -->
+  <main id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-name" id="brand-name">MIGUELLM</span>
+        <span class="brand-sub" id="brand-sub">terminal clone</span>
+      </div>
+      <div class="status" id="status">
+        <span class="dot" id="status-dot"></span>
+        <span id="status-text">ONLINE</span>
+      </div>
+    </header>
+
+    <div class="stage">
+      <!-- 3D head in hyperspace -->
+      <div class="head-pane">
+        <canvas id="head-canvas"></canvas>
+        <div id="head-fallback" class="head-fallback hidden">
+          <div class="head-fallback-ring"></div>
+          <span>MIGUELLM</span>
+        </div>
+        <div class="emotion-tag" id="emotion-tag"></div>
+      </div>
+
+      <!-- Conversation -->
+      <div class="chat-pane">
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <div id="thinking" class="thinking hidden">
+          <span class="thinking-label">MiguelLM is thinking</span><span class="dots"><i>.</i><i>.</i><i>.</i></span>
+        </div>
+
+        <form id="composer" class="composer" autocomplete="off">
+          <span class="prompt-caret">&gt;</span>
+          <input id="input" class="input" type="text" placeholder="Talk to MiguelLM..." autofocus />
+          <button id="mic" class="btn mic" type="button" title="Push to talk (hold)" aria-label="Push to talk">REC</button>
+          <button id="send" class="btn send" type="submit" aria-label="Send">SEND</button>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/vendor/three.min.js"></script>
+  <script src="/static/vendor/GLTFLoader.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
