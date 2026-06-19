@@ -179,20 +179,24 @@
       var size = box.getSize(new THREE.Vector3());
       var center = box.getCenter(new THREE.Vector3());
       var scale = 1.6 / (Math.max(size.x, size.y, size.z) || 1);
-      // Collect meshes FIRST — never mutate the tree during traverse(), or the
-      // wireframe children we add get re-traversed (infinite recursion).
+      // Collect meshes FIRST — never mutate the tree during traverse().
       var meshes = [];
       gltf.scene.traverse(function (node) { if (node.isMesh) meshes.push(node); });
       meshes.forEach(function (node) {
-        var geom = node.geometry;
-        node.material = new THREE.MeshBasicMaterial({ color: 0x0c2c14, transparent: true, opacity: 0.28 });
-        node.material.morphTargets = true;
+        // Use the photo texture baked into the GLB so the head looks like the
+        // real person (unlit MeshBasicMaterial = always visible, no lights needed).
+        // Fall back to a green wireframe only if there's no texture.
+        var src = node.material;
+        var map = src && src.map ? src.map : null;
+        var mat = new THREE.MeshBasicMaterial({
+          map: map,
+          color: map ? 0xffffff : 0x2cff70,
+          wireframe: !map,
+        });
+        mat.morphTargets = true;
+        node.material = mat;
         if (node.morphTargetDictionary) morphDict = node.morphTargetDictionary;
         morphMeshes.push(node);
-        var wire = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color: 0x2cff70, wireframe: true }));
-        wire.material.morphTargets = true;
-        node.add(wire);
-        morphMeshes.push(wire);
       });
       gltf.scene.position.sub(center.multiplyScalar(scale));
       gltf.scene.scale.setScalar(scale);
@@ -249,8 +253,9 @@
 
       if (headGroup) {
         headGroup.position.y = Math.sin(t) * current.bob;
-        headGroup.rotation.y = Math.sin(t * 0.4) * 0.25 + current.tilt;
-        headGroup.rotation.z = current.tilt * 0.4;
+        // Gentle sway only — it's a flat-ish face mask, so big rotations look uncanny.
+        headGroup.rotation.y = Math.sin(t * 0.35) * 0.1 + current.tilt * 0.4;
+        headGroup.rotation.z = current.tilt * 0.25;
         var m = target.morph || {};
         ["smile", "frown", "browRaise"].forEach(function (k) { applyMorph(k, m[k] || 0); });
         var targetJaw = 0;
