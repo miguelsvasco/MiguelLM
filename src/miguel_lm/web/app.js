@@ -172,20 +172,31 @@
       }
     }
 
+    // Mouth movement is deliberately calm: hold each frame for at least MIN_HOLD ms
+    // and use hysteresis (open at a higher amplitude than it closes) so the avatar
+    // doesn't strobe between the resting and talking frames.
+    var MOUTH_MIN_HOLD = 160;   // ms a frame stays put before it may change
+    var MOUTH_OPEN_AT = 0.11;   // amplitude to open the mouth
+    var MOUTH_CLOSE_AT = 0.05;  // amplitude to close it again
     function flap(ts) {
       if (!speaking) { raf = null; return; }
       raf = requestAnimationFrame(flap);
+      var want = mouthOpen;
       if (analyser) {
         analyser.getByteTimeDomainData(freqData);
         var sum = 0;
         for (var i = 0; i < freqData.length; i++) { var v = (freqData[i] - 128) / 128; sum += v * v; }
-        mouthOpen = Math.sqrt(sum / freqData.length) > 0.06;
-      } else if (ts - lastSwap > 110) {
-        // No analyser (audio missing): just flap on a timer for some life.
-        mouthOpen = !mouthOpen;
-        lastSwap = ts;
+        var amp = Math.sqrt(sum / freqData.length);
+        want = mouthOpen ? amp > MOUTH_CLOSE_AT : amp > MOUTH_OPEN_AT;
+      } else {
+        // No analyser (audio missing): just flap slowly for some life.
+        want = !mouthOpen;
       }
-      render();
+      if (want !== mouthOpen && ts - lastSwap >= MOUTH_MIN_HOLD) {
+        mouthOpen = want;
+        lastSwap = ts;
+        render();
+      }
     }
 
     return { init: init, loadAvatars: loadAvatars, setEmotion: setEmotion, setSpeaking: setSpeaking };
