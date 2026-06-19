@@ -139,28 +139,19 @@ class RemoteClientRuntime:
 
     # --- Raw helpers used by the desktop app's Python<->JS bridge -------------
     def metadata_dict(self) -> Dict[str, Any]:
-        """Full /metadata payload (app fields + boot_lines + has_head)."""
+        """Full /metadata payload (app fields + boot_lines + has_avatars)."""
         return self._request_json("GET", "/metadata", tolerate_errors=True) or {}
 
     def chat_payload(self, text: str) -> Dict[str, Any]:
         """Raw /chat response, including audio_wav_base64 for in-UI playback."""
         return self._request_json("POST", "/chat", {"text": text})
 
-    def fetch_head_model(self) -> Optional[bytes]:
-        """Binary GLB from /assets/head, or None if the backend has no head."""
-        headers = {"User-Agent": "MiguelLM/%s" % __version__}
-        if self.token:
-            headers["Authorization"] = "Bearer %s" % self.token
-        request = urllib.request.Request(self.url + "/assets/head", headers=headers, method="GET")
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                return response.read()
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                return None
-            raise RemoteServiceError("Head model HTTP %s" % exc.code) from exc
-        except Exception as exc:
-            raise RemoteServiceError("Head model unreachable at %s: %s" % (self.url, exc)) from exc
+    def fetch_avatars(self) -> Dict[str, Any]:
+        """Emotion -> {idle[, talking]} base64 PNG map from /assets/avatars.
+
+        Returns an empty dict if the backend serves no avatars.
+        """
+        return self._request_json("GET", "/assets/avatars", tolerate_errors=True) or {}
 
     def _request_json(
         self,

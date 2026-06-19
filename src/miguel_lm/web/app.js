@@ -22,7 +22,7 @@
   window.addEventListener("error", function (e) { showError("JS error: " + (e.message || e.error)); });
   window.addEventListener("unhandledrejection", function (e) { showError("Promise error: " + (e.reason && e.reason.message || e.reason)); });
 
-  var EMOTIONS = ["warm", "amused", "confused", "serious", "speaking"];
+  var EMOTIONS = ["normal", "happy", "sad", "grumpy", "love", "scared", "confused", "mischievous", "thinking"];
   var DEFAULT_BOOT = [
     "ROBCO INDUSTRIES (TM) TERMLINK PROTOCOL",
     "",
@@ -104,184 +104,91 @@
     return { playWavBase64: playWavBase64, blip: blip, beep: beep };
   })();
 
-  /* ---------------- 3D head in hyperspace ---------------- */
+  /* ---------------- Emotion avatar ----------------
+   * Static green portraits, one per emotion, each with an idle and a "talking"
+   * (mouth-open) frame. While speaking we swap idle<->talking by audio amplitude
+   * so the mouth appears to move. All frames are base64 PNGs from the backend. */
   var Head = (function () {
-    var THREE = window.THREE;
-    var renderer, scene, camera, stars, headGroup, morphMeshes = [], morphDict = {};
-    var ok = false, raf = null;
-    var speaking = false, analyser = null, freqData = null;
-    var current = emotionParams("warm");
-    var target = emotionParams("warm");
-    var jaw = 0;
-    var canvas = document.getElementById("head-canvas");
+    var img = document.getElementById("head-avatar");
     var fallback = document.getElementById("head-fallback");
+    var frames = {};            // emotion -> { idle: dataURI, talking: dataURI }
+    var loaded = false;
+    var currentEmotion = "normal";
+    var speaking = false, analyser = null, freqData = null;
+    var mouthOpen = false, lastSwap = 0, raf = null;
 
-    function emotionParams(name) {
-      var map = {
-        warm:     { morph: { smile: 0.35 },                 tilt: 0.05,  speed: 0.4, hue: 0x2cff70, bob: 0.06 },
-        amused:   { morph: { smile: 0.8, browRaise: 0.3 },  tilt: 0.18,  speed: 0.8, hue: 0x6dffa0, bob: 0.12 },
-        confused: { morph: { browRaise: 0.7 },              tilt: -0.22, speed: 0.5, hue: 0x9ffcff, bob: 0.05 },
-        serious:  { morph: { frown: 0.4 },                  tilt: 0.0,   speed: 0.25, hue: 0xff6b6b, bob: 0.02 },
-        speaking: { morph: {},                              tilt: 0.04,  speed: 0.9, hue: 0x2cff70, bob: 0.08 },
-      };
-      return map[name] || map.warm;
-    }
+    function init() { /* nothing until avatars arrive; the fallback ring shows meanwhile */ }
 
-    function init() {
-      if (!THREE) { degrade(); return; }
-      try {
-        renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
-        camera.position.set(0, 0, 3.2);
-        buildStars();
-        resize();
-        window.addEventListener("resize", resize);
-        ok = true;
-        animate();
-      } catch (e) {
-        showError("WebGL init failed (no 3D head): " + (e && e.message ? e.message : e));
-        degrade();
+    function loadAvatars(map) {
+      if (!map || typeof map !== "object" || !Object.keys(map).length) {
+        showError("No avatars available (backend returned none).");
+        return;
       }
-    }
-
-    function buildStars() {
-      var N = 1200;
-      var geo = new THREE.BufferGeometry();
-      var pos = new Float32Array(N * 3);
-      for (var i = 0; i < N; i++) {
-        pos[i * 3] = (Math.random() - 0.5) * 12;
-        pos[i * 3 + 1] = (Math.random() - 0.5) * 12;
-        pos[i * 3 + 2] = -Math.random() * 40;
-      }
-      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-      var mat = new THREE.PointsMaterial({ color: 0x2cff70, size: 0.05, transparent: true, opacity: 0.85 });
-      stars = new THREE.Points(geo, mat);
-      scene.add(stars);
-    }
-
-    function loadHeadFromBase64(b64) {
-      if (!ok) { showError("3D head: WebGL/THREE not available in this webview."); return; }
-      if (!THREE.GLTFLoader) { showError("3D head: GLTFLoader script did not load."); return; }
-      if (!b64) { showError("3D head: backend returned no model."); return; }
-      var loader = new THREE.GLTFLoader();
-      try {
-        loader.parse(b64ToArrayBuffer(b64), "", onHead, function (err) {
-          showError("3D head parse failed: " + (err && err.message ? err.message : err));
-        });
-      } catch (e) { showError("3D head parse threw: " + e.message); }
-    }
-
-    function onHead(gltf) {
-      headGroup = new THREE.Group();
-      var box = new THREE.Box3().setFromObject(gltf.scene);
-      var size = box.getSize(new THREE.Vector3());
-      var center = box.getCenter(new THREE.Vector3());
-      var scale = 1.6 / (Math.max(size.x, size.y, size.z) || 1);
-      // Collect meshes FIRST — never mutate the tree during traverse().
-      var meshes = [];
-      gltf.scene.traverse(function (node) { if (node.isMesh) meshes.push(node); });
-      meshes.forEach(function (node) {
-        // Render unlit (MeshBasicMaterial = always visible, no scene lights needed)
-        // and double-sided (avoids backface culling hiding parts of arbitrary GLBs).
-        // Prefer the baked photo texture, else vertex colors, else green wireframe.
-        var src = node.material;
-        var map = src && src.map ? src.map : null;
-        var hasVertexColor = node.geometry && node.geometry.attributes && node.geometry.attributes.color;
-        var opts = { side: THREE.DoubleSide };
-        if (map) { opts.map = map; opts.color = 0xffffff; }
-        else if (hasVertexColor) { opts.vertexColors = true; }
-        else { opts.color = 0x2cff70; opts.wireframe = true; }
-        var mat = new THREE.MeshBasicMaterial(opts);
-        mat.morphTargets = true; // harmless if the mesh has none
-        node.material = mat;
-        if (node.morphTargetDictionary) morphDict = node.morphTargetDictionary;
-        morphMeshes.push(node);
+      frames = {};
+      Object.keys(map).forEach(function (emotion) {
+        var v = map[emotion] || {};
+        var idle = v.idle ? "data:image/png;base64," + v.idle : null;
+        var talking = v.talking ? "data:image/png;base64," + v.talking : idle;
+        frames[emotion] = { idle: idle, talking: talking };
+        // Warm the browser cache so idle<->talking swaps don't flicker.
+        [idle, talking].forEach(function (uri) { if (uri) { var p = new Image(); p.src = uri; } });
       });
-      gltf.scene.position.sub(center.multiplyScalar(scale));
-      gltf.scene.scale.setScalar(scale);
-      headGroup.add(gltf.scene);
-      scene.add(headGroup);
+      loaded = true;
+      if (img) img.classList.remove("hidden");
+      if (fallback) fallback.classList.add("hidden");
+      render();
     }
 
-    function degrade() {
-      if (canvas) canvas.classList.add("hidden");
-      if (fallback) fallback.classList.remove("hidden");
+    function framesFor(name) {
+      return frames[name] || frames.normal || frames[Object.keys(frames)[0]] || null;
     }
 
-    function resize() {
-      if (!ok) return;
-      var w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
+    function render() {
+      if (!loaded || !img) return;
+      var f = framesFor(currentEmotion);
+      if (!f) return;
+      var uri = (speaking && mouthOpen && f.talking) ? f.talking : f.idle;
+      if (uri && img.getAttribute("src") !== uri) img.setAttribute("src", uri);
     }
 
     function setEmotion(name) {
-      target = emotionParams(name);
+      currentEmotion = name || "normal";
       var tag = document.getElementById("emotion-tag");
       if (tag) tag.textContent = name ? "[ " + name + " ]" : "";
-    }
-    function setSpeaking(on, an) { speaking = on; analyser = an || null; if (an) freqData = new Uint8Array(an.fftSize); }
-
-    function applyMorph(name, value) {
-      if (!(name in morphDict)) return;
-      var idx = morphDict[name];
-      morphMeshes.forEach(function (m) {
-        if (m.morphTargetInfluences) m.morphTargetInfluences[idx] = value;
-      });
+      render();
     }
 
-    var t = 0;
-    function animate() {
-      raf = requestAnimationFrame(animate);
-      t += 0.016;
-      current.tilt += (target.tilt - current.tilt) * 0.06;
-      current.speed += (target.speed - current.speed) * 0.06;
-      current.bob += (target.bob - current.bob) * 0.06;
-
-      if (stars) {
-        var p = stars.geometry.attributes.position.array;
-        var spd = current.speed * 0.5 + (speaking ? 0.2 : 0);
-        for (var i = 2; i < p.length; i += 3) {
-          p[i] += spd;
-          if (p[i] > 3) { p[i] = -40; }
-        }
-        stars.geometry.attributes.position.needsUpdate = true;
-        stars.material.color.setHex(target.hue);
+    function setSpeaking(on, an) {
+      speaking = !!on;
+      analyser = (on && an) ? an : null;
+      if (analyser) freqData = new Uint8Array(analyser.fftSize);
+      if (img) img.classList.toggle("speaking", speaking);
+      if (speaking) {
+        if (!raf) raf = requestAnimationFrame(flap);
+      } else {
+        if (raf) { cancelAnimationFrame(raf); raf = null; }
+        mouthOpen = false;
+        render();
       }
-
-      if (headGroup) {
-        headGroup.position.y = Math.sin(t) * current.bob;
-        // Gentle sway only — it's a flat-ish face mask, so big rotations look uncanny.
-        headGroup.rotation.y = Math.sin(t * 0.35) * 0.1 + current.tilt * 0.4;
-        headGroup.rotation.z = current.tilt * 0.25;
-        var m = target.morph || {};
-        ["smile", "frown", "browRaise"].forEach(function (k) { applyMorph(k, m[k] || 0); });
-        var targetJaw = 0;
-        if (speaking) {
-          if (analyser) {
-            analyser.getByteTimeDomainData(freqData);
-            var sum = 0;
-            for (var j = 0; j < freqData.length; j++) { var v = (freqData[j] - 128) / 128; sum += v * v; }
-            targetJaw = Math.min(1, Math.sqrt(sum / freqData.length) * 4.5);
-          } else {
-            targetJaw = (Math.sin(t * 22) * 0.5 + 0.5) * 0.5;
-          }
-        }
-        jaw += (targetJaw - jaw) * 0.4;
-        applyMorph("jawOpen", jaw);
-        // If the model has no jaw morph (e.g. a Meshy head), give a subtle breathing
-        // pulse while speaking so there's still some "talking" feedback.
-        var hasJaw = "jawOpen" in morphDict;
-        headGroup.scale.setScalar(speaking && !hasJaw ? 1 + Math.sin(t * 16) * 0.02 : 1);
-      }
-
-      renderer.render(scene, camera);
     }
 
-    return { init: init, loadHeadFromBase64: loadHeadFromBase64, setEmotion: setEmotion, setSpeaking: setSpeaking };
+    function flap(ts) {
+      if (!speaking) { raf = null; return; }
+      raf = requestAnimationFrame(flap);
+      if (analyser) {
+        analyser.getByteTimeDomainData(freqData);
+        var sum = 0;
+        for (var i = 0; i < freqData.length; i++) { var v = (freqData[i] - 128) / 128; sum += v * v; }
+        mouthOpen = Math.sqrt(sum / freqData.length) > 0.06;
+      } else if (ts - lastSwap > 110) {
+        // No analyser (audio missing): just flap on a timer for some life.
+        mouthOpen = !mouthOpen;
+        lastSwap = ts;
+      }
+      render();
+    }
+
+    return { init: init, loadAvatars: loadAvatars, setEmotion: setEmotion, setSpeaking: setSpeaking };
   })();
 
   /* ---------------- DOM helpers ---------------- */
@@ -344,7 +251,7 @@
     addMessage("user", assistantPeerLabel.user, text);
     thinkingEl.classList.remove("hidden");
     setStatus("THINKING", "busy");
-    Head.setEmotion("confused");
+    Head.setEmotion("thinking");
 
     Promise.resolve(API.chat(text))
       .then(function (data) {
@@ -352,7 +259,7 @@
         if (!data || data.error) throw new Error((data && data.error) || "no response");
         var resp = data.response || {};
         var spoken = resp.spoken_text || "...";
-        var emotion = resp.emotion || "warm";
+        var emotion = resp.emotion || "normal";
         var bubble = addMessage("bot", assistantPeerLabel.bot, "");
         Head.setEmotion(emotion);
         setStatus("SPEAKING", "busy");
@@ -368,7 +275,7 @@
           var audioDone = clip ? clip.ended : Promise.resolve();
           return Promise.all([done, audioDone]).then(function () {
             Head.setSpeaking(false, null);
-            Head.setEmotion(emotion === "speaking" ? "warm" : emotion);
+            Head.setEmotion(emotion);
             setStatus("ONLINE", null);
           });
         });
@@ -377,7 +284,7 @@
         thinkingEl.classList.add("hidden");
         addMessage("error", "SYSTEM", "Dialogue failed: " + err.message);
         setStatus("ERROR", "error");
-        Head.setEmotion("serious");
+        Head.setEmotion("grumpy");
       })
       .then(function () { busy = false; });
   }
@@ -472,12 +379,12 @@
     meta = meta || {};
     if (meta.error) meta = {};
     applyMetadata(meta);
-    if (meta.has_head && API) {
-      Promise.resolve(API.head_model_b64()).then(function (b64) {
-        Head.loadHeadFromBase64(b64);
-      }).catch(function (e) { showError("Fetching 3D head failed: " + (e && e.message || e)); });
-    } else if (!meta.has_head) {
-      showError("Backend reports no head model (has_head=false).");
+    if (meta.has_avatars && API) {
+      Promise.resolve(API.avatars()).then(function (map) {
+        Head.loadAvatars(map);
+      }).catch(function (e) { showError("Fetching avatars failed: " + (e && e.message || e)); });
+    } else if (!meta.has_avatars) {
+      showError("Backend reports no avatars (has_avatars=false).");
     }
     runBoot(Array.isArray(meta.boot_lines) && meta.boot_lines.length ? meta.boot_lines : DEFAULT_BOOT);
   });

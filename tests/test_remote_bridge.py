@@ -27,7 +27,7 @@ def test_metadata_dict_and_boot_lines(monkeypatch):
     payload = {
         "app": {"name": "MiguelLM", "intro_text": "hi"},
         "boot_lines": ["L1", "L2"],
-        "has_head": True,
+        "has_avatars": True,
     }
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: _fake_json_response(payload))
     runtime = RemoteClientRuntime(AppConfig.load("config/dev.yaml"))
@@ -35,11 +35,11 @@ def test_metadata_dict_and_boot_lines(monkeypatch):
     assert runtime.metadata_dict() == payload
     meta = runtime._metadata.from_mapping(payload, runtime.metadata)
     assert meta.boot_lines == ["L1", "L2"]
-    assert meta.has_head is True
+    assert meta.has_avatars is True
 
 
 def test_chat_payload_returns_raw_dict(monkeypatch):
-    payload = {"response": {"spoken_text": "hey", "emotion": "warm"}, "audio_wav_base64": "QQ=="}
+    payload = {"response": {"spoken_text": "hey", "emotion": "normal"}, "audio_wav_base64": "QQ=="}
     captured = {}
 
     def fake_urlopen(req, timeout):
@@ -55,26 +55,24 @@ def test_chat_payload_returns_raw_dict(monkeypatch):
     assert captured["body"] == {"text": "hello"}
 
 
-def test_fetch_head_model_returns_bytes(monkeypatch):
-    class FakeBinary:
-        def __enter__(self):
-            return self
+def test_fetch_avatars_returns_map(monkeypatch):
+    payload = {"normal": {"idle": "aWRsZQ==", "talking": "dGFsaw=="}}
+    captured = {}
 
-        def __exit__(self, *a):
-            return None
-
-        def read(self):
-            return b"GLBDATA"
-
-    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: FakeBinary())
-    runtime = RemoteClientRuntime(AppConfig.load("config/dev.yaml"))
-    assert runtime.fetch_head_model() == b"GLBDATA"
-
-
-def test_fetch_head_model_none_on_404(monkeypatch):
     def fake_urlopen(req, timeout):
-        raise urllib.error.HTTPError(req.full_url, 404, "no head", {}, None)
+        captured["url"] = req.full_url
+        return _fake_json_response(payload)
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     runtime = RemoteClientRuntime(AppConfig.load("config/dev.yaml"))
-    assert runtime.fetch_head_model() is None
+    assert runtime.fetch_avatars() == payload
+    assert captured["url"].endswith("/assets/avatars")
+
+
+def test_fetch_avatars_empty_on_404(monkeypatch):
+    def fake_urlopen(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 404, "no avatars", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    runtime = RemoteClientRuntime(AppConfig.load("config/dev.yaml"))
+    assert runtime.fetch_avatars() == {}

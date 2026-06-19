@@ -35,7 +35,7 @@ class ConversationTurn:
 @dataclass
 class DialogueResponse:
     spoken_text: str
-    emotion: str = "warm"
+    emotion: str = "normal"
     memory_candidates: List[Dict[str, Any]] = field(default_factory=list)
     safety_flags: List[str] = field(default_factory=list)
     provider: str = "unknown"
@@ -62,7 +62,7 @@ class DialogueResponse:
 
         return cls(
             spoken_text=spoken or "I am not sure how to answer that yet.",
-            emotion=str(data.get("emotion") or "warm"),
+            emotion=str(data.get("emotion") or "normal"),
             memory_candidates=memory_candidates,
             safety_flags=[str(flag) for flag in safety_flags],
             provider=provider,
@@ -123,7 +123,7 @@ class ClientMetadata:
         "remote service. Durable memory is off unless enabled with /memory on."
     )
     boot_lines: List[str] = field(default_factory=lambda: list(DEFAULT_BOOT_LINES))
-    has_head: bool = False
+    has_avatars: bool = False
 
     @classmethod
     def from_mapping(cls, data: Dict[str, Any], fallback: "ClientMetadata") -> "ClientMetadata":
@@ -148,7 +148,7 @@ class ClientMetadata:
             voice_test_text=text("voice_test_text", fallback.voice_test_text),
             privacy_text=text("privacy_text", fallback.privacy_text),
             boot_lines=boot_lines,
-            has_head=bool(data.get("has_head", fallback.has_head)),
+            has_avatars=bool(data.get("has_avatars", fallback.has_avatars)),
         )
 
 

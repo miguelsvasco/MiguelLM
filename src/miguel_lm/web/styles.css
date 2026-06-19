@@ -115,7 +115,20 @@ button, input { font-family: inherit; color: inherit; }
   background: radial-gradient(ellipse at center, #06170c 0%, #010301 80%);
   overflow: hidden;
 }
-#head-canvas { width: 100%; height: 100%; display: block; }
+.head-avatar {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain; display: block;
+  /* Phosphor bloom so the keyed-out portrait reads as a glowing CRT projection. */
+  filter: drop-shadow(0 0 6px rgba(44, 255, 112, 0.45));
+  transition: filter 0.25s ease;
+}
+.head-avatar.speaking {
+  animation: avatar-speak 1.1s ease-in-out infinite;
+}
+@keyframes avatar-speak {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(44, 255, 112, 0.45)); }
+  50%      { filter: drop-shadow(0 0 16px rgba(44, 255, 112, 0.85)); }
+}
 .emotion-tag {
   position: absolute; bottom: 10px; left: 12px; font-size: 11px; letter-spacing: 2px;
   text-transform: uppercase; color: var(--phosphor-dim);

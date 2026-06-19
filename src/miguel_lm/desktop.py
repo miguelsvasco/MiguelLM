@@ -8,10 +8,9 @@ UI from local files. A Python<->JS bridge (`MiguelLMApi`) does all networking vi
 from __future__ import annotations
 
 import asyncio
-import base64
 from importlib import resources
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from miguel_lm.config import AppConfig
 from miguel_lm.remote import RemoteClientRuntime
@@ -43,12 +42,15 @@ class MiguelLMApi:
         except Exception as exc:  # noqa: BLE001
             return {"error": str(exc)}
 
-    def head_model_b64(self) -> Optional[str]:
+    def avatars(self) -> Dict[str, Any]:
+        """Emotion -> {idle[, talking]} base64 PNG map for the web UI.
+
+        Returns ``{}`` if the backend serves no avatars (optional eye-candy).
+        """
         try:
-            data = self.runtime.fetch_head_model()
-        except Exception:  # noqa: BLE001 - head is optional eye-candy
-            return None
-        return base64.b64encode(data).decode("ascii") if data else None
+            return self.runtime.fetch_avatars()
+        except Exception:  # noqa: BLE001 - avatars are optional eye-candy
+            return {}
 
     def listen(self) -> Dict[str, Any]:
         """Python-side push-to-talk: record locally and return the transcript."""

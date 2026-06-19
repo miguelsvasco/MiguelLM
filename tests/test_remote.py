@@ -37,7 +37,7 @@ async def test_remote_answer_decodes_backend_audio(monkeypatch):
             return json.dumps(
                 {
                     "provider": "remote",
-                    "response": {"spoken_text": "Fine. Test the tiny loop first.", "emotion": "warm"},
+                    "response": {"spoken_text": "Fine. Test the tiny loop first.", "emotion": "normal"},
                     "audio_wav_base64": base64.b64encode(wav_payload).decode("ascii"),
                     "sample_rate": 24000,
                     "audio_provider": "local_http_tts",

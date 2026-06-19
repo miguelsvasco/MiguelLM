@@ -62,7 +62,6 @@ py-modules = ["miguellm"]
 miguel_lm = [
     "defaults/*.yaml",
     "web/*",
-    "web/vendor/*",
 ]
 
 [tool.pytest.ini_options]
