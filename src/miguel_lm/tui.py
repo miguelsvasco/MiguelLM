@@ -5,6 +5,7 @@ import random
 from typing import List, Optional
 
 from rich.panel import Panel
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -43,6 +44,14 @@ def mouth_envelope(pcm: bytes, sample_rate: int, hop_seconds: float = _MOUTH_TIC
     return [v / peak for v in env] if peak else []
 
 
+def face_fits(width: int, pane_width: int, min_chat_width: int) -> bool:
+    """Whether the terminal is wide enough to show the face pane alongside the chat.
+
+    Below ``pane_width + min_chat_width`` columns the face is dropped so the chat
+    (the LLM interface) keeps the whole width down to a usable minimum."""
+    return width >= pane_width + min_chat_width
+
+
 HELP_TEXT = """Commands:
 /help                 show this help
 /privacy              show the memory/privacy note
@@ -70,6 +79,8 @@ class Viewport(Static):
 
     COLS = 42
     ROWS = 16
+    # Default pane width (matches the #viewport CSS): COLS + 2 border + 2 padding.
+    PANE_WIDTH = COLS + 4
     # Mouth gating (ticks are 0.12s). Hysteresis + a minimum hold keep the mouth
     # from strobing between the resting and talking frames; it follows the speech
     # envelope, opening on words and resting between them.
@@ -89,6 +100,7 @@ class Viewport(Static):
         self._env_idx = 0
         self._mouth_open = False
         self._mouth_hold = 0
+        self.pane_width = self.PANE_WIDTH  # current target width; grows to fit avatars
 
     def on_mount(self) -> None:
         self._stars = [
@@ -115,7 +127,8 @@ class Viewport(Static):
         if parsed:
             # Widen the pane to fit the art (+2 border, +2 padding); Textual clips
             # the overflow on narrower terminals, keeping the centered face visible.
-            self.styles.width = max_w + 4
+            self.pane_width = max_w + 4
+            self.styles.width = self.pane_width
 
     def set_emotion(self, emotion: str) -> None:
         self._emotion = emotion or "normal"
@@ -279,6 +292,10 @@ class TerminalClientApp(App):
     }
     """
 
+    # Narrowest the chat pane may get before we drop the face to give it the whole
+    # width. Below face_width + this, the terminal shows the chat (LLM interface) only.
+    _MIN_CHAT_WIDTH = 36
+
     BINDINGS = [
         Binding("ctrl+r", "record", "Push-to-talk"),
         Binding("ctrl+l", "clear_log", "Clear"),
@@ -309,6 +326,20 @@ class TerminalClientApp(App):
         yield Static("", id="boot", markup=False)
         yield Footer()
 
+    def on_resize(self, event: events.Resize) -> None:
+        self._apply_responsive_layout(event.size.width)
+
+    def _apply_responsive_layout(self, width: int) -> None:
+        """Hide the face pane when the terminal is too narrow to hold both panes,
+        so the chat (LLM interface) gets the full width down to a usable minimum."""
+        try:
+            viewport = self.query_one("Viewport", Viewport)
+        except Exception:  # noqa: BLE001 - not composed yet
+            return
+        show_face = face_fits(width, viewport.pane_width, self._MIN_CHAT_WIDTH)
+        if viewport.display != show_face:
+            viewport.display = show_face
+
     async def on_mount(self) -> None:
         self.metadata = await self.runtime.refresh_metadata()
         self.title = self.metadata.app_name
@@ -319,6 +350,7 @@ class TerminalClientApp(App):
                 self.query_one("Viewport", Viewport).set_avatars(avatars)
             except Exception:  # noqa: BLE001 - avatars are optional eye-candy
                 pass
+        self._apply_responsive_layout(self.size.width)
         self._update_status("Booting")
         self.set_interval(0.5, self._blink_thinking)
         await self._run_boot()

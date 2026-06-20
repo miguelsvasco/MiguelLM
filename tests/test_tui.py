@@ -1,6 +1,6 @@
 import array
 
-from miguel_lm.tui import mouth_envelope
+from miguel_lm.tui import face_fits, mouth_envelope
 
 
 def _pcm(values):
@@ -10,6 +10,14 @@ def _pcm(values):
 def test_mouth_envelope_empty_without_audio():
     assert mouth_envelope(b"", 24000) == []
     assert mouth_envelope(_pcm([100, -100]), 0) == []
+
+
+def test_face_fits_only_when_both_panes_have_room():
+    # Face pane 46 wide, chat needs at least 36: cutoff at 82 columns.
+    assert face_fits(82, 46, 36) is True
+    assert face_fits(81, 46, 36) is False
+    # A wider avatar pane pushes the cutoff out.
+    assert face_fits(82, 60, 36) is False
 
 
 def test_mouth_envelope_tracks_loud_then_quiet():
