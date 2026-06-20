@@ -221,6 +221,41 @@ class Viewport(Static):
         return "\n".join("".join(row) for row in grid)
 
 
+class Transcript(RichLog):
+    """Conversation log that remembers its panels and re-flows them to its own
+    width whenever it's resized.
+
+    RichLog caches rendered lines and never re-wraps, so a shrunk window would
+    otherwise keep the old, too-wide lines (and pop a horizontal scrollbar). We
+    reflow on the widget's own resize, where the settled content width is known."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._panels: List[Panel] = []
+        self._flow_width = -1
+
+    def add_panel(self, panel: Panel) -> None:
+        """Append a panel and render it to fill the current width."""
+        self._panels.append(panel)
+        self._flow_width = self.scrollable_content_region.width
+        self.write(panel, expand=True, shrink=True)
+
+    def clear_panels(self) -> None:
+        self._panels.clear()
+        self.clear()
+
+    def on_resize(self) -> None:
+        width = self.scrollable_content_region.width
+        if width == self._flow_width:
+            return
+        self._flow_width = width
+        if not self._panels:
+            return
+        self.clear()
+        for panel in self._panels:
+            self.write(panel, expand=True, shrink=True)
+
+
 class TerminalClientApp(App):
     CSS = """
     Screen {
@@ -259,6 +294,8 @@ class TerminalClientApp(App):
         border: round #1bb14b;
         background: #020503;
         color: #b9ffb4;
+        overflow-x: hidden;
+        scrollbar-gutter: stable;
     }
 
     #reply {
@@ -312,9 +349,6 @@ class TerminalClientApp(App):
         self._booting = True
         self._thinking = False
         self._think_dots = 0
-        # Panels committed to the transcript, kept so we can re-flow them when the
-        # terminal resizes (RichLog caches rendered lines and won't re-wrap itself).
-        self._transcript_panels: List[Panel] = []
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -322,7 +356,7 @@ class TerminalClientApp(App):
             yield Viewport()
             with Vertical(id="chat"):
                 yield Static("", id="status")
-                yield RichLog(
+                yield Transcript(
                     id="transcript", wrap=True, highlight=True, markup=True, min_width=0
                 )
                 yield Static("", id="reply", markup=False)
@@ -332,9 +366,8 @@ class TerminalClientApp(App):
         yield Footer()
 
     def on_resize(self, event: events.Resize) -> None:
+        # Hide/show the face; the Transcript re-flows itself off its own resize.
         self._apply_responsive_layout(event.size.width)
-        # Re-flow after the new sizes land (toggling the face changes the chat width).
-        self.call_after_refresh(self._rerender_transcript)
 
     def _apply_responsive_layout(self, width: int) -> None:
         """Hide the face pane when the terminal is too narrow to hold both panes,
@@ -434,8 +467,7 @@ class TerminalClientApp(App):
             self._update_status("Ready")
 
     def action_clear_log(self) -> None:
-        self._transcript_panels.clear()
-        self.query_one("#transcript", RichLog).clear()
+        self.query_one("#transcript", Transcript).clear_panels()
 
     # ---------------- conversation ----------------
     async def _handle_message(self, text: str, source: str = "You") -> None:
@@ -588,18 +620,7 @@ class TerminalClientApp(App):
     def _log_panel(self, panel: Panel) -> None:
         """Commit a panel to the transcript, sized to fill the current chat width
         (so it wraps within the pane and its title centers on the pane)."""
-        self._transcript_panels.append(panel)
-        self.query_one("#transcript", RichLog).write(panel, expand=True, shrink=True)
-
-    def _rerender_transcript(self) -> None:
-        """Clear and rewrite every committed panel at the current width."""
-        try:
-            log = self.query_one("#transcript", RichLog)
-        except Exception:  # noqa: BLE001 - not composed yet
-            return
-        log.clear()
-        for panel in self._transcript_panels:
-            log.write(panel, expand=True, shrink=True)
+        self.query_one("#transcript", Transcript).add_panel(panel)
 
     def _system(self, text: str) -> None:
         self._log_panel(Panel(text, title="System", border_style="yellow"))
